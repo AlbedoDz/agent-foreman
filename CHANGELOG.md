@@ -36,6 +36,8 @@ Each task ran in its own worktree, using the packaged scripts installed by `inst
 - After both merges, the full suite on `main` passed 9/9.
 - The AG2 project id does not have to belong to the task's folder: a project bound to another folder worked, because the
   kickoff message names the workspace. The conversation then appears under that other project in the AG2 UI.
+- Sessions that the adapter starts through the OpenCode CLI appear in the OpenCode **desktop** app (checked by the user
+  in the desktop window), so you can follow or take over a worker's session there.
 
 ### Fixed by the live test
 - OpenCode prints its first JSON event only after the model's first reply, which can take minutes, so `sessionId`
@@ -49,8 +51,6 @@ Each task ran in its own worktree, using the packaged scripts installed by `inst
 - `-Message` refuses to start a worker in a task worktree that was already removed.
 
 ### Not verified yet
-- Whether sessions started from the CLI show up in the OpenCode **desktop** UI. They are in OpenCode's shared session
-  store (`opencode session list` sees them), but nobody has checked the desktop window yet.
 - `generic-cli.ps1` against any real third-party harness (only unit-tested with mocks).
 - Installing from GitHub with `claude plugin marketplace add <owner>/ag2-orchestrator` (only the local manifests were validated).
 - The real model names behind AG2's `flash` / `pro`.
