@@ -30,6 +30,7 @@ param(
     [switch]$Status,
     [switch]$Message,
     [switch]$Capabilities,
+    [switch]$Cancel,
     [string]$TaskId = '',
     [string]$PromptFile = '',
     [string]$Workspace = '.',
@@ -135,7 +136,7 @@ function Get-PermissionArgs {
 
 function Invoke-GenericAdapter {
     param(
-        [string]$Worker = '', [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$Capabilities,
+        [string]$Worker = '', [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$Capabilities, [switch]$Cancel,
         [string]$TaskId = '', [string]$PromptFile = '', [string]$Workspace = '.', [string]$Title = '',
         [string]$Model = '', [string]$SessionId = '', [string]$MessageFile = '', [string]$Agent = '', [string]$Prefix = '',
         [int]$WaitSeconds = 60, $Config = $null
@@ -174,6 +175,11 @@ function Invoke-GenericAdapter {
         return [ordered]@{ ok = $true; worker = $Worker; taskId = $TaskId; sessionId = $r.SessionId; logPath = $r.Log }
     }
 
+    if ($Cancel) {
+        if (-not $SessionId) { New-AdapterError '-Cancel needs -SessionId.' 'Pass the sessionId returned by -Dispatch.' }
+        return Stop-TaskProcess -Worker $Worker -SessionId $SessionId
+    }
+
     if ($Status) {
         if (-not $SessionId) { New-AdapterError '-Status needs -SessionId.' 'Pass the sessionId returned by -Dispatch.' }
         return Get-ProcessTaskStatus -Worker $Worker -SessionId $SessionId
@@ -206,7 +212,7 @@ function Invoke-GenericAdapter {
         return [ordered]@{ ok = $true }
     }
 
-    New-AdapterError 'No mode given.' 'Use one of -Check, -Capabilities, -Dispatch, -Status, -Message.'
+    New-AdapterError 'No mode given.' 'Use one of -Check, -Capabilities, -Dispatch, -Status, -Message, -Cancel.'
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

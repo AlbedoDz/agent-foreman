@@ -2,6 +2,13 @@
 #
 #   verify-handoff.ps1 -Branch task/T1 -Handoff docs/handoffs/HANDOFF_T1.md [-Base main]
 #                      [-Allowed 'src/foo/*','tests/test_foo.py'] [-Forbidden 'tests/locked_*'] [-Repo .]
+#                      [-Locked 'tests/*'] [-Run 'python -m unittest tests.test_foo','ruff check src']
+#
+# Verification contract: -Run commands come from the PLAN (never from the HANDOFF). They run in the task's worktree
+# (or a temporary detached checkout of the branch) with a timeout, and their exit codes decide. If a -Locked file
+# was modified, the run is refuted: a worker must not edit the checks that judge it.
+# verdict: verified (no error and every -Run passed) | refuted (any error) | unverified (no error, nothing run).
+# Evidence (findings + command tails) is written to .claude/orchestrator/logs/verify-<branch>.json.
 #
 # Detects (each one has really happened with AI workers):
 #   sha-not-found / sha-not-on-branch   commit SHAs in the HANDOFF that do not exist or are not on the branch
@@ -11,6 +18,8 @@
 #   deviations-none-but-scope-violated  "DEVIATIONS: none" while the scope was violated
 #   handoff-not-in-last-commit          HANDOFF must be committed in the branch's last commit
 #   uncommitted-changes                 the task worktree still has uncommitted work (e.g. a script never committed)
+#   locked-file-modified                a -Locked file (e.g. a locked test) differs from the base
+#   check-failed / check-timeout        a -Run command exited non-zero or ran past -RunTimeoutSec
 #   no-sha / no-status / no-files-list  report fields missing (warnings)
 # It cannot check numeric claims ("met", "pass"): those stay in manualChecks for the reviewer.
 # Exit 0 when there is no error-level finding.
@@ -20,6 +29,9 @@ param(
     [string]$Base = '',
     [string[]]$Allowed = @(),
     [string[]]$Forbidden = @(),
+    [string[]]$Locked = @(),
+    [string[]]$Run = @(),
+    [int]$RunTimeoutSec = 600,
     [string]$Repo = '.'
 )
 . "$PSScriptRoot/lib/Common.ps1"
@@ -42,8 +54,35 @@ function Test-GlobAny {
     $false
 }
 
+function Invoke-Check {
+    <# Run one check command in a folder with a timeout (a pwsh child, so any shell syntax works). #>
+    param([string]$Command, [string]$Dir, [int]$TimeoutSec)
+    $out = [IO.Path]::GetTempFileName(); $err = [IO.Path]::GetTempFileName()
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        $p = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList (Join-ProcessArguments @('-NoProfile', '-NonInteractive', '-Command', $Command)) `
+            -WorkingDirectory $Dir -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+        $timedOut = -not $p.WaitForExit($TimeoutSec * 1000)
+        if ($timedOut) { $p.Kill($true) }
+        $tail = @(@(Get-Content -LiteralPath $out) + @(Get-Content -LiteralPath $err) | Where-Object { $_ -and $_.Trim() } | Select-Object -Last 15)
+        [ordered]@{ command = $Command; exitCode = $(if ($timedOut) { $null } else { $p.ExitCode }); timedOut = $timedOut
+            seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1); tail = $tail }
+    } finally { Remove-Item -LiteralPath $out, $err -ErrorAction SilentlyContinue }
+}
+
+function Find-BranchWorktree {
+    param([string]$Repo, [string]$Branch)
+    $wt = $null
+    foreach ($line in (git -C $Repo worktree list --porcelain)) {
+        if ($line -like 'worktree *') { $wt = $line.Substring(9) }
+        elseif ($line -eq "branch refs/heads/$Branch") { return $wt }
+    }
+    $null
+}
+
 function Test-Handoff {
-    param([string]$Repo, [string]$Branch, [string]$Handoff, [string]$Base, [string[]]$Allowed, [string[]]$Forbidden)
+    param([string]$Repo, [string]$Branch, [string]$Handoff, [string]$Base, [string[]]$Allowed, [string[]]$Forbidden,
+        [string[]]$Locked = @(), [string[]]$Run = @(), [int]$RunTimeoutSec = 600)
     if (-not $Branch -or -not $Handoff) { New-AdapterError '-Branch and -Handoff are required.' 'e.g. -Branch task/T1 -Handoff docs/handoffs/HANDOFF_T1.md' }
     $Handoff = $Handoff -replace '\\', '/'
     git -C $Repo rev-parse -q --verify "refs/heads/$Branch" *> $null
@@ -94,27 +133,57 @@ function Test-Handoff {
     $last = @(git -C $Repo diff-tree --no-commit-id --name-only -r --root $Branch)
     if ($Handoff -notin $last) { Add-Finding 'error' 'handoff-not-in-last-commit' 'The HANDOFF must be committed in the last commit of the branch.' }
 
-    foreach ($line in (git -C $Repo worktree list --porcelain)) {
-        if ($line -like 'worktree *') { $wt = $line.Substring(9) }
-        elseif ($line -eq "branch refs/heads/$Branch") {
-            $dirty = @(git -C $wt status --porcelain)
-            if ($dirty) { Add-Finding 'error' 'uncommitted-changes' "$($dirty.Count) uncommitted change(s) in $wt (work that was never committed)." }
+    $wt = Find-BranchWorktree $Repo $Branch
+    if ($wt) {
+        $dirty = @(git -C $wt status --porcelain)
+        if ($dirty) { Add-Finding 'error' 'uncommitted-changes' "$($dirty.Count) uncommitted change(s) in $wt (work that was never committed)." }
+    }
+
+    foreach ($f in $changed) {
+        if ($Locked -and (Test-GlobAny $f $Locked)) { Add-Finding 'error' 'locked-file-modified' "$f is locked (a check that judges the task) but was changed." }
+    }
+
+    # verification contract: run the plan's checks against the committed branch
+    $runs = @()
+    if ($Run) {
+        $tmp = $null
+        $dir = $wt
+        if (-not $dir) {
+            $tmp = Join-Path ([IO.Path]::GetTempPath()) ('ag2o-verify-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+            git -C $Repo worktree add --detach $tmp $Branch *> $null
+            $dir = $tmp
+        }
+        try {
+            foreach ($c in $Run) {
+                $r = Invoke-Check -Command $c -Dir $dir -TimeoutSec $RunTimeoutSec
+                $runs += $r
+                if ($r.timedOut) { Add-Finding 'error' 'check-timeout' "'$c' ran longer than $RunTimeoutSec s." }
+                elseif ($r.exitCode -ne 0) { Add-Finding 'error' 'check-failed' "'$c' exited $($r.exitCode)." }
+            }
+        } finally {
+            if ($tmp) { git -C $Repo worktree remove --force $tmp *> $null }
         }
     }
 
     $errors = @($findings | Where-Object { $_.severity -eq 'error' })
-    [ordered]@{
-        ok = ($errors.Count -eq 0); branch = $Branch; base = $Base; status = $status; changedFiles = $changed
-        findings = @($findings)
+    $verdict = if ($errors.Count) { 'refuted' } elseif ($Run) { 'verified' } else { 'unverified' }
+    $result = [ordered]@{
+        ok = ($errors.Count -eq 0); verdict = $verdict; branch = $Branch; base = $Base; status = $status; changedFiles = $changed
+        findings = @($findings); checks = @($runs)
         manualChecks = @(
-            'Re-run the task tests, the full suite and the linter yourself; do not copy numbers from the HANDOFF.'
+            $(if ($Run) { 'Compare the check results above with the numbers the HANDOFF claims.' } else { 'No -Run checks: run the task tests, the full suite and the linter yourself; do not copy numbers from the HANDOFF.' })
             'Check every "met"/"pass"/"done" claim against the raw numbers in the report.'
-            'Byte-compare locked test files against the plan (git diff <base> -- <locked files> must be empty).'
+            $(if ($Locked) { 'Locked files were checked against the base.' } else { 'Pass -Locked <globs> so edited locked tests refute the run.' })
             'Read the full diff (git diff <base>...<branch>) for scope creep and hidden behaviour changes.'
         )
     }
+    $evidence = Join-Path (Get-LogDir) ('verify-' + ($Branch -replace '[\\/:]', '_') + '.json')
+    ConvertTo-ResultLine $result | Set-Content -Encoding utf8 -LiteralPath $evidence
+    $result['evidence'] = $evidence
+    $result
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Complete-Script -Body { Test-Handoff -Repo $Repo -Branch $Branch -Handoff $Handoff -Base $Base -Allowed $Allowed -Forbidden $Forbidden }
+    Complete-Script -Body { Test-Handoff -Repo $Repo -Branch $Branch -Handoff $Handoff -Base $Base -Allowed $Allowed -Forbidden $Forbidden `
+            -Locked $Locked -Run $Run -RunTimeoutSec $RunTimeoutSec }
 }

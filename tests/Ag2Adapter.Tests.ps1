@@ -161,6 +161,9 @@ Describe '-Capabilities, -Prefix, -Agent' {
         (Invoke-Run @{ Dispatch = $true; TaskId = 'P'; PromptFile = $p; Workspace = $w; ProjectId = 'p'; Prefix = '/tdd' }).Code | Should -Be 0
         Should -Invoke Invoke-AgentApi -ParameterFilter { $Arguments[0] -eq 'new-conversation' -and $Arguments[3] -like '/tdd Workspace: *' }
     }
+    It '-Cancel explains that AG2 conversations are stopped in the app' {
+        (Invoke-Run @{ Cancel = $true; SessionId = 'conv-123' }).Json.hint | Should -Match 'Antigravity 2 window'
+    }
     It 'refuses -Agent with a pointer to the agy worker' {
         (Invoke-Run @{ Check = $true; Agent = 'x' }).Json.hint | Should -Match 'agy'
     }

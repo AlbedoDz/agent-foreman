@@ -92,6 +92,38 @@ Describe 'task-new / verify-handoff / task-cleanup' {
         $codes | Should -Contain 'handoff-not-in-last-commit'
         $codes | Should -Contain 'uncommitted-changes'
     }
+    It 'verification contract: verified when the plan checks pass in the worktree' {
+        Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('a.txt', 'handoffs/HANDOFF_T1.md')
+        $v = Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md', '-Run', 'if (Test-Path a.txt) { exit 0 } else { exit 9 }')
+        $v.Code | Should -Be 0
+        $v.Json.verdict | Should -Be 'verified'
+        $v.Json.checks[0].exitCode | Should -Be 0
+        Test-Path $v.Json.evidence | Should -BeTrue
+    }
+    It 'verification contract: refuted by a failing check, and by an edited locked file' {
+        Set-Content (Join-Path $taskWt 'README.md') 'tampered'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('README.md', 'handoffs/HANDOFF_T1.md')
+        $v = Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md', '-Locked', 'README.md', '-Run', 'Write-Output boom; exit 4')
+        $v.Code | Should -Be 1
+        $v.Json.verdict | Should -Be 'refuted'
+        $v.Json.findings.code | Should -Contain 'locked-file-modified'
+        $v.Json.findings.code | Should -Contain 'check-failed'
+        $v.Json.checks[0].tail | Should -Contain 'boom'
+    }
+    It 'verification contract: runs in a temporary checkout when the worktree is gone' {
+        Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('a.txt', 'handoffs/HANDOFF_T1.md')
+        git -C $testRepo worktree remove $taskWt
+        $v = Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md', '-Run', 'if (Test-Path a.txt) { exit 0 } else { exit 9 }')
+        $v.Json.verdict | Should -Be 'verified'
+        @(git -C $testRepo worktree list).Count | Should -Be 1
+    }
+    It 'unverified when no checks are given' {
+        Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('a.txt', 'handoffs/HANDOFF_T1.md')
+        (Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md')).Json.verdict | Should -Be 'unverified'
+    }
     It 'reports a missing HANDOFF as not finished' {
         (Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md')).Json.hint | Should -Match 'not finished'
     }

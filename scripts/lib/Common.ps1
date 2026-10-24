@@ -292,6 +292,25 @@ function Add-MessagePrefix {
     if ($Prefix) { "$($Prefix.Trim()) $Text" } else { $Text }
 }
 
+function Stop-TaskProcess {
+    <# Cancel a running process-based task: kill the process tree this plugin started for the session (pid from the
+       state file). Never touches processes it did not start. #>
+    param([Parameter(Mandatory)][string]$Worker, [Parameter(Mandatory)][string]$SessionId)
+    $s = Find-TaskState $SessionId
+    if (-not $s) { New-AdapterError "No state file for session $SessionId." 'Only tasks dispatched by this plugin can be cancelled.' }
+    $pid_ = [int]$s.pid
+    if (-not (Test-ProcessAlive $pid_)) { return [ordered]@{ ok = $true; worker = $Worker; sessionId = $SessionId; cancelled = $false; detail = 'already finished' } }
+    Stop-ProcessTree $pid_
+    [ordered]@{ ok = $true; worker = $Worker; sessionId = $SessionId; cancelled = $true; pid = $pid_
+        detail = 'process tree stopped; the worktree is left as it is for review or task-cleanup -Discard' }
+}
+
+function Stop-ProcessTree {
+    <# Mocked in tests. #>
+    param([int]$ProcessId)
+    taskkill /T /F /PID $ProcessId *> $null
+}
+
 function Read-TextFile {
     param([Parameter(Mandatory)][string]$Path, [string]$What = 'file')
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {

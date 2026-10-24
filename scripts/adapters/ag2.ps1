@@ -17,6 +17,7 @@ param(
     [switch]$Message,
     [switch]$FindProjectId,
     [switch]$Capabilities,
+    [switch]$Cancel,
     [string]$TaskId = '',
     [string]$PromptFile = '',
     [string]$Workspace = '.',
@@ -152,7 +153,7 @@ function Resolve-ProjectId {
 
 function Invoke-Ag2Adapter {
     param(
-        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$FindProjectId, [switch]$Capabilities,
+        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$FindProjectId, [switch]$Capabilities, [switch]$Cancel,
         [string]$Agent = '', [string]$Prefix = '',
         [string]$TaskId = '', [string]$PromptFile = '', [string]$Workspace = '.', [string]$Title = '',
         [string]$Model = '', [string]$SessionId = '', [string]$MessageFile = '', [string]$ProjectId = '', [int]$Tail = 0,
@@ -164,6 +165,10 @@ function Invoke-Ag2Adapter {
 
     if ($Agent) {
         New-AdapterError 'AG2 desktop agentapi has no agent option.' 'Name the skill or agent in the prompt, or use -Prefix "/<skill>"; for --agent use the agy (Antigravity CLI) worker.'
+    }
+
+    if ($Cancel) {
+        New-AdapterError 'agentapi has no cancel command.' 'Stop the conversation in the Antigravity 2 window; the worktree stays for review or task-cleanup -Discard.'
     }
 
     if ($Capabilities) {

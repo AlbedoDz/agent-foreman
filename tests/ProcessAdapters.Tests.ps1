@@ -124,6 +124,18 @@ Describe 'opencode.ps1' {
         $c.skills[0].name | Should -Be 'tdd'
         $c.skills[0].description | Should -Be 'Red then green.'
     }
+    It '-Cancel stops only the process tree it started, and is a no-op once finished' {
+        Mock Stop-ProcessTree { }
+        Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_c"}'; @{ Id = $PID } }
+        Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T11 -PromptFile $prompt -Workspace $ws -Config $cfg } | Out-Null
+        $r = (Invoke-Run { Invoke-OpenCodeAdapter -Cancel -SessionId ses_c -Config $cfg }).Json
+        $r.cancelled | Should -BeTrue
+        Should -Invoke Stop-ProcessTree -Times 1 -ParameterFilter { $ProcessId -eq $PID }
+        Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_d"}'; @{ Id = 999999 } }
+        Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T12 -PromptFile $prompt -Workspace $ws -Config $cfg } | Out-Null
+        (Invoke-Run { Invoke-OpenCodeAdapter -Cancel -SessionId ses_d -Config $cfg }).Json.cancelled | Should -BeFalse
+        (Invoke-Run { Invoke-OpenCodeAdapter -Cancel -SessionId ses_unknown -Config $cfg }).Json.hint | Should -Match 'dispatched by this plugin'
+    }
     It 'fails cleanly with a hint when the prompt is missing' {
         $r = Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T6 -PromptFile 'nope.md' -Workspace $ws -Config $cfg }
         $r.Json.ok | Should -BeFalse

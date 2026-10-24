@@ -15,6 +15,7 @@ param(
     [switch]$Status,
     [switch]$Message,
     [switch]$Capabilities,
+    [switch]$Cancel,
     [string]$TaskId = '',
     [string]$PromptFile = '',
     [string]$Workspace = '.',
@@ -119,7 +120,7 @@ function Start-OpenCodeRun {
 
 function Invoke-OpenCodeAdapter {
     param(
-        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$Capabilities,
+        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$Capabilities, [switch]$Cancel,
         [string]$Agent = '', [string]$Prefix = '',
         [string]$TaskId = '', [string]$PromptFile = '', [string]$Workspace = '.', [string]$Title = '',
         [string]$Model = '', [string]$SessionId = '', [string]$MessageFile = '', [int]$WaitSeconds = 60,
@@ -155,6 +156,11 @@ function Invoke-OpenCodeAdapter {
         Save-TaskState $TaskId ([ordered]@{ worker = 'opencode'; taskId = $TaskId; sessionId = $r.SessionId; pid = $r.Pid; logPath = $r.Log; workspace = $in.Workspace; model = $Model; agent = $Agent }) | Out-Null
         Add-DispatchLog ([ordered]@{ worker = 'opencode'; action = 'dispatch'; taskId = $TaskId; sessionId = $r.SessionId; model = $Model; workspace = $in.Workspace })
         return [ordered]@{ ok = $true; worker = 'opencode'; taskId = $TaskId; sessionId = $r.SessionId; logPath = $r.Log }
+    }
+
+    if ($Cancel) {
+        if (-not $SessionId) { New-AdapterError '-Cancel needs -SessionId.' 'Pass the sessionId returned by -Dispatch.' }
+        return Stop-TaskProcess -Worker 'opencode' -SessionId $SessionId
     }
 
     if ($Status) {
@@ -197,7 +203,7 @@ function Invoke-OpenCodeAdapter {
         return [ordered]@{ ok = $true }
     }
 
-    New-AdapterError 'No mode given.' 'Use one of -Check, -Capabilities, -Dispatch, -Status, -Message.'
+    New-AdapterError 'No mode given.' 'Use one of -Check, -Capabilities, -Dispatch, -Status, -Message, -Cancel.'
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
