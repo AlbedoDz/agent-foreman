@@ -22,6 +22,7 @@ Describe 'opencode.ps1' {
         $script:prompt = Join-Path $TestDrive 'T1.prompt.md'; Set-Content $prompt 'x'
         $script:ws = Join-Path $TestDrive 'wt-T1'; New-Item -ItemType Directory -Force $ws | Out-Null
         $script:cfg = @{ workers = @{ opencode = @{ command = 'opencode.cmd'; defaultModel = 'prov/model' } } }
+        Mock Invoke-OpenCodeCli { @{ Out = '[]'; Code = 0 } } -ParameterFilter { $Arguments[0] -eq 'session' }
     }
     AfterAll { Remove-Item Env:AG2O_HOME -ErrorAction SilentlyContinue }
 
@@ -69,12 +70,32 @@ Describe 'opencode.ps1' {
         (Invoke-Run { Invoke-OpenCodeAdapter -Status -SessionId ses_dead }).Json.state | Should -Be 'idle'
         (Invoke-Run { Invoke-OpenCodeAdapter -Status -SessionId ses_other }).Json.state | Should -Be 'unknown'
     }
-    It '-Message continues the session in the same worktree' {
-        Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_m"}'; @{ Id = $PID } }
-        Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T5 -PromptFile $prompt -Workspace $ws -Config $cfg } | Out-Null
+    It '-Message continues an idle session in the same worktree with the dispatch model' {
+        Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_m"}'; @{ Id = 999999 } }
+        Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T5 -PromptFile $prompt -Workspace $ws -Model 'x/fast' -Config $cfg } | Out-Null
         $f = Join-Path $TestDrive 'n.md'; Set-Content $f 'keep going'
         (Invoke-Run { Invoke-OpenCodeAdapter -Message -SessionId ses_m -MessageFile $f -Config $cfg }).Json.ok | Should -BeTrue
-        Should -Invoke Start-WorkerProcess -ParameterFilter { $Arguments -contains '--session' -and $Arguments -contains 'ses_m' -and $WorkingDirectory -eq $ws }
+        Should -Invoke Start-WorkerProcess -ParameterFilter {
+            $Arguments -contains '--session' -and $Arguments -contains 'ses_m' -and $Arguments -contains 'x/fast' -and $WorkingDirectory -eq $ws
+        }
+    }
+    It '-Message refuses while the session is still running' {
+        Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_busy"}'; @{ Id = $PID } }
+        Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T7 -PromptFile $prompt -Workspace $ws -Config $cfg } | Out-Null
+        $f = Join-Path $TestDrive 'n2.md'; Set-Content $f 'x'
+        (Invoke-Run { Invoke-OpenCodeAdapter -Message -SessionId ses_busy -MessageFile $f -Config $cfg }).Json.error | Should -Match 'still running'
+    }
+    It 'finds the session by title when the model is slow to emit the first event' {
+        Mock Start-WorkerProcess { Set-Content $StdOut ''; @{ Id = $PID } }
+        Mock Invoke-OpenCodeCli {
+            $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+            @{ Out = "[{`"id`":`"ses_slow`",`"title`":`"T8`",`"created`":$now,`"updated`":$now},{`"id`":`"ses_old`",`"title`":`"T8`",`"created`":1,`"updated`":1}]"; Code = 0 }
+        } -ParameterFilter { $Arguments[0] -eq 'session' }
+        $r = Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T8 -PromptFile $prompt -Workspace $ws -WaitSeconds 1 -Config $cfg }
+        $r.Json.sessionId | Should -Be 'ses_slow'
+        $st = (Invoke-Run { Invoke-OpenCodeAdapter -Status -SessionId ses_slow -Config $cfg }).Json
+        $st.state | Should -Be 'running'
+        ([datetime]$st.lastActivity) | Should -BeGreaterThan (Get-Date).AddMinutes(-1)
     }
     It 'fails cleanly with a hint when the prompt is missing' {
         $r = Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T6 -PromptFile 'nope.md' -Workspace $ws -Config $cfg }
