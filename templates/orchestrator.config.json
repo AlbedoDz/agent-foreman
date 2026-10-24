@@ -16,7 +16,8 @@
     "review": "claude",
     "merge": "claude",
     "second-opinion": "agy",
-    "cheap-bulk": "dsh"
+    "cheap-bulk": "dsh",
+    "openai-second-opinion": "codex"
   },
   "workers": {
     "ag2": {
@@ -192,7 +193,96 @@
           "deepseek-flash (headless profile default; change it in the DeepSeek Harness app)"
         ]
       }
+    },
+    "codex": {
+      "adapter": "generic-cli",
+      "enabled": false,
+      "note": "OpenAI Codex CLI bundled with the ChatGPT/Codex desktop app (Microsoft Store). If `codex` is on PATH (npm i -g @openai/codex), replace the path with \"codex\".",
+      "defaultModel": "",
+      "defaultAgent": "",
+      "permissions": "edits",
+      "permissionArgs": {
+        "default": [
+          "-s",
+          "read-only"
+        ],
+        "edits": [
+          "-s",
+          "workspace-write",
+          "--approve-for-me"
+        ],
+        "full": [
+          "--dangerously-bypass-approvals-and-sandbox"
+        ]
+      },
+      "check": [
+        "%ProgramFiles%\\WindowsApps\\OpenAI.Codex_*\\app\\resources\\codex.exe",
+        "--version"
+      ],
+      "dispatch": [
+        "%ProgramFiles%\\WindowsApps\\OpenAI.Codex_*\\app\\resources\\codex.exe",
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "-C",
+        "{workspace}",
+        "-m",
+        "{model}",
+        "--add-dir",
+        "{promptDir}",
+        "{permissions}",
+        "{message}"
+      ],
+      "message": [
+        "%ProgramFiles%\\WindowsApps\\OpenAI.Codex_*\\app\\resources\\codex.exe",
+        "exec",
+        "resume",
+        "--json",
+        "-m",
+        "{model}",
+        "{sessionId}",
+        "{messageText}"
+      ],
+      "sessionIdPattern": "\"thread_id\"\\s*:\\s*\"([^\"]+)\"",
+      "errorPattern": "\"type\"\\s*:\\s*\"turn\\.failed\"[^\\r\\n]*",
+      "errorHint": "Codex could not finish the turn. Run `codex login status` and `codex doctor` (the CLI is inside the ChatGPT/Codex desktop app), then retry.",
+      "capabilities": {
+        "models": {
+          "cmd": [
+            "%ProgramFiles%\\WindowsApps\\OpenAI.Codex_*\\app\\resources\\codex.exe",
+            "debug",
+            "models"
+          ],
+          "pattern": "\"slug\"\\s*:\\s*\"([^\"]+)\""
+        },
+        "mcp": {
+          "cmd": [
+            "%ProgramFiles%\\WindowsApps\\OpenAI.Codex_*\\app\\resources\\codex.exe",
+            "mcp",
+            "list"
+          ],
+          "skip": 1,
+          "pattern": "^(\\S+)\\s"
+        },
+        "plugins": {
+          "cmd": [
+            "%ProgramFiles%\\WindowsApps\\OpenAI.Codex_*\\app\\resources\\codex.exe",
+            "plugin",
+            "list"
+          ],
+          "pattern": "^(\\S+@\\S+)\\s+installed, enabled"
+        },
+        "skills": {
+          "dirs": [
+            "~/.codex/skills"
+          ]
+        }
+      }
     }
   },
-  "permissionModes": "default = the harness asks (headless: denied); edits = may edit files in its worktree; full = may run anything without asking (only for disposable worktrees)"
+  "permissionModes": "default = the harness asks (headless: denied); edits = may edit files in its worktree; full = may run anything without asking (only for disposable worktrees)",
+  "lead": {
+    "default": "claude",
+    "note": "Claude Code (Opus 5.5+) leads by default. To hand the lead to another harness for one goal, use /agent-foreman:delegate-lead <harness[:model]> <goal>."
+  }
 }

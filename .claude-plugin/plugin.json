@@ -1,8 +1,8 @@
 {
   "name": "agent-foreman",
-  "displayName": "Agent Foreman",
-  "version": "0.3.0",
-  "description": "Claude Code as Tech Lead (foreman) over Antigravity 2, OpenCode and any headless coding agent on Windows: wave plans, one git worktree per task, dispatch and watch, HANDOFF verified against git, review-gated merges.",
+  "displayName": "Agent Foreman - multi-agent orchestrator for Antigravity 2, OpenCode, Codex",
+  "version": "0.4.0",
+  "description": "Claude Code (Opus 5.5) as Tech Lead over other AI coding agents on Windows: Google Antigravity 2 desktop, Antigravity CLI (agy), OpenCode, OpenAI Codex CLI / ChatGPT & Codex desktop app, DeepSeek Harness and any headless coding CLI. Wave plans, one git worktree per task, per-harness models/agents/skills, verification contracts against git, automatic fix rounds, review-gated merges. Claude leads by default; any harness can be made the lead.",
   "author": {
     "name": "AlbedoDz",
     "url": "https://github.com/AlbedoDz"
@@ -11,14 +11,25 @@
   "repository": "https://github.com/AlbedoDz/agent-foreman",
   "license": "MIT",
   "keywords": [
-    "orchestration",
-    "antigravity",
-    "opencode",
+    "claude-code",
+    "claude-code-plugin",
     "multi-agent",
-    "worktree",
-    "windows",
-    "powershell",
+    "orchestration",
     "tech-lead",
-    "code-review"
+    "antigravity",
+    "antigravity-2",
+    "google-antigravity",
+    "antigravity-cli",
+    "agy",
+    "opencode",
+    "openai-codex",
+    "codex-cli",
+    "chatgpt-desktop",
+    "deepseek-harness",
+    "git-worktree",
+    "code-review",
+    "mcp",
+    "windows",
+    "powershell"
   ]
 }

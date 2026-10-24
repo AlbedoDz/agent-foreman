@@ -122,7 +122,7 @@ function Install-Orchestrator {
     $proj = $proj.Path
     $Workers = @($Workers | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $Lead = @($Lead | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ })
-    foreach ($l in $Lead) { if ($l -notin 'claude', 'opencode', 'agy', 'ag2') { New-AdapterError "Unknown lead '$l'." 'Leads: claude, opencode, agy, ag2.' } }
+    foreach ($l in $Lead) { if ($l -notin 'claude', 'opencode', 'agy', 'ag2', 'codex') { New-AdapterError "Unknown lead '$l'." 'Leads: claude, opencode, agy, ag2, codex.' } }
     $known = 'ag2', 'opencode', 'generic-cli'
     $orch = Join-Path $proj '.claude/orchestrator'
     $actions = [System.Collections.Generic.List[string]]::new()
@@ -176,6 +176,9 @@ function Install-Orchestrator {
         }
     }
     if ('opencode' -in $Lead) { foreach ($a in (Merge-OpenCodeMcp (Join-Path $proj 'opencode.json') $DryRun)) { $actions.Add($a) } }
+    if ('codex' -in $Lead) {
+        $todo.Add('Codex / ChatGPT desktop as lead: register the MCP server once (global Codex config, so run it yourself): codex mcp add agent-foreman -- python "<project>\.claude\orchestrator\bin\mcp\agent_foreman_mcp.py" (set AG2O_PROJECT=<project> if Codex starts elsewhere). The lead skill is in .agents/skills/agent-foreman-lead; whether Codex loads project skills from there is not verified, so also mention it in AGENTS.md.')
+    }
     if ($Lead | Where-Object { $_ -in 'agy', 'ag2' }) {
         $todo.Add('agy/AG2 as lead: they load MCP servers only from ~/.gemini/config/mcp_config.json (global). To give them the agent-foreman tools, add under "mcpServers": "agent-foreman": {"command": "python", "args": ["<project>/.claude/orchestrator/bin/mcp/agent_foreman_mcp.py"], "env": {"AG2O_PROJECT": "<project>"}}. Without it they can still run the scripts through their shell (the skill explains both).')
     }

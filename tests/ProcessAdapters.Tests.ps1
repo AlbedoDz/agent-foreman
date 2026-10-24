@@ -246,6 +246,17 @@ Describe 'shipped harness presets (agy, dsh)' {
         (Expand-CommandTemplate $tpl.workers.agy.message @{ messageText = 'm'; sessionId = 'c1'; model = '' }) -join ' ' |
             Should -Be 'agy --print m --conversation c1 --output-format stream-json'
     }
+    It 'codex: exec --json in the worktree with sandbox level; thread id and turn.failed detection' {
+        $c = $tpl.workers.codex
+        $cmd = Expand-CommandTemplate $c.dispatch @{ message = 'GO'; model = ''; workspace = 'C:\wt'; promptDir = 'C:\p'
+            permissions = @($c.permissionArgs[$c.permissions]) }
+        $cmd[0] | Should -Match 'WindowsApps\\OpenAI\.Codex_\*\\app\\resources\\codex\.exe$'
+        $cmd[1..($cmd.Count - 1)] -join ' ' | Should -Be 'exec --json --skip-git-repo-check -C C:\wt --add-dir C:\p -s workspace-write --approve-for-me GO'
+        [regex]::Match('{"type":"thread.started","thread_id":"01a16f0f-3ae5"}', $c.sessionIdPattern).Groups[1].Value | Should -Be '01a16f0f-3ae5'
+        '{"type":"turn.failed","error":{"message":"workspace routing discovery failed"}}' | Should -Match $c.errorPattern
+        '{"type":"error","message":"Reconnecting... 1/5"}' | Should -Not -Match $c.errorPattern
+        (Expand-CommandTemplate $c.message @{ messageText = 'm'; sessionId = 't1'; model = '' })[1..5] | Should -Be @('exec', 'resume', '--json', 't1', 'm')
+    }
     It 'dsh: headless --json from the app install; session id and missing-credential detection' {
         $cmd = Expand-CommandTemplate $tpl.workers.dsh.dispatch @{ message = 'GO'; model = '' }
         $cmd[0] | Should -Be (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd')

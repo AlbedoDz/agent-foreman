@@ -100,7 +100,24 @@ Describe 'Get-LogUsage' {
         Set-Content $f @('{"event":"step_update","step_update":{"usage":{"input_tokens":1}}}', '{"event":"result","result":{"status":"SUCCESS","usage":{"input_tokens":2494,"total_tokens":2741}}}')
         (Get-LogUsage $f).total_tokens | Should -Be 2741
     }
+    It 'sums Codex turn.completed usage' {
+        $f = Join-Path $TestDrive 'codex.jsonl'
+        Set-Content $f @('{"type":"thread.started","thread_id":"t"}', '{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":800,"output_tokens":90}}')
+        $u = Get-LogUsage $f
+        $u.input | Should -Be 1200; $u.output | Should -Be 90
+    }
     It 'returns null without a log' { Get-LogUsage (Join-Path $TestDrive 'none.jsonl') | Should -BeNullOrEmpty }
+}
+
+Describe 'Resolve-Executable' {
+    It 'resolves a versioned install folder with a wildcard to the newest match' {
+        foreach ($v in '1.0.0', '1.2.0') { New-Item -ItemType File -Force (Join-Path $TestDrive "Apps/Tool_$v/bin/tool.exe") | Out-Null }
+        Resolve-Executable (Join-Path $TestDrive 'Apps/Tool_*/bin/tool.exe') | Should -Match 'Tool_1\.2\.0'
+        Resolve-Executable (Join-Path $TestDrive 'Apps/None_*/x.exe') | Should -BeNullOrEmpty
+    }
+    It 'prefers .exe/.cmd on PATH over extension-less shims' {
+        Resolve-Executable 'git' | Should -Match '\.(exe|cmd)$'
+    }
 }
 
 Describe 'Get-ConfigValue' {

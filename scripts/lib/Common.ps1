@@ -160,6 +160,7 @@ function Get-LogUsage {
     <# Token/cost usage of the last run, read from a worker's JSON-lines log. Known shapes:
        agy        {"event":"result","result":{"usage":{"input_tokens":..,"output_tokens":..,"total_tokens":..}}}
        OpenCode   {"type":"step_finish","part":{"tokens":{"input":..,"output":..,"reasoning":..},"cost":..}}  (summed)
+       Codex      {"type":"turn.completed","usage":{"input_tokens":..,"cached_input_tokens":..,"output_tokens":..}}  (summed)
        other      the last object with a "usage" key #>
     param([string]$Path)
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $null }
@@ -171,6 +172,9 @@ function Get-LogUsage {
             $t = $o['part']['tokens']; $steps++
             $sum.input += [int64](Get-ConfigValue $t 'input' 0); $sum.output += [int64](Get-ConfigValue $t 'output' 0)
             $sum.reasoning += [int64](Get-ConfigValue $t 'reasoning' 0); $sum.cost += [double](Get-ConfigValue $o 'part.cost' 0)
+        } elseif ($o['type'] -eq 'turn.completed' -and $o['usage']) {
+            $u = $o['usage']; $steps++
+            $sum.input += [int64](Get-ConfigValue $u 'input_tokens' 0); $sum.output += [int64](Get-ConfigValue $u 'output_tokens' 0)
         } elseif ($o['event'] -eq 'result' -and $o['result'] -and $o['result']['usage']) { $last = $o['result']['usage'] }
         elseif ($o.Contains('usage')) { $last = $o['usage'] }
     }
@@ -256,6 +260,12 @@ function Resolve-Executable {
        extension-less sh shim and a .ps1 next to the .cmd, which Start-Process cannot run). #>
     param([string]$Name)
     if (Test-Path -LiteralPath $Name -PathType Leaf) { return (Resolve-Path -LiteralPath $Name).Path }
+    if ($Name -match '[*?]') {
+        # versioned install folders (e.g. ...\WindowsApps\OpenAI.Codex_<version>_x64__...\codex.exe): newest match wins
+        $hit = Get-Item -Path $Name -ErrorAction SilentlyContinue | Sort-Object { $_.Directory.FullName } | Select-Object -Last 1
+        if ($hit) { return $hit.FullName }
+        return $null
+    }
     $c = Get-Command $Name -CommandType Application -All -ErrorAction SilentlyContinue |
         Where-Object { $_.Extension -in '.exe', '.cmd', '.bat', '.com' } | Select-Object -First 1
     if ($c) { $c.Source } else { $null }

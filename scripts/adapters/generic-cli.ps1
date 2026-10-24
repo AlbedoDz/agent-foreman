@@ -151,7 +151,8 @@ function Invoke-GenericAdapter {
 
     if ($Check) {
         $cmd = Expand-CommandTemplate (Get-WorkerSpec $Config $Worker 'check') @{}
-        Assert-Executable $cmd[0] $Worker
+        $exe = Assert-Executable $cmd[0] $Worker
+        if ($exe) { $cmd[0] = $exe }
         # @(): a single argument must stay an array, or splatting would pass it character by character
         $rest = @($cmd | Select-Object -Skip 1)
         $out = & $cmd[0] @rest 2>&1 | Out-String

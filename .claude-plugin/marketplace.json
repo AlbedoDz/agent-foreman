@@ -1,6 +1,6 @@
 {
   "name": "agent-foreman",
-  "description": "Single-plugin marketplace for agent-foreman.",
+  "description": "agent-foreman: Claude Code orchestrator for Google Antigravity 2, Antigravity CLI, OpenCode, OpenAI Codex and DeepSeek Harness.",
   "owner": {
     "name": "AlbedoDz",
     "url": "https://github.com/AlbedoDz"
@@ -9,7 +9,7 @@
     {
       "name": "agent-foreman",
       "source": ".",
-      "description": "Claude Code as Tech Lead over Antigravity 2, OpenCode and other headless coding agents (Windows)."
+      "description": "Claude Code as Tech Lead over Google Antigravity 2 desktop, Antigravity CLI (agy), OpenCode, OpenAI Codex / ChatGPT desktop and DeepSeek Harness workers on Windows; any harness can lead."
     }
   ]
 }

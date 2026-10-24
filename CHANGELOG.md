@@ -1,6 +1,34 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.4.0 (unreleased)
+
+Claude Code (Opus 5.5) stays the default lead; the lead can be handed to another harness and model per goal.
+Adds OpenAI Codex / the ChatGPT & Codex desktop app.
+
+### Added
+- **`/agent-foreman:delegate-lead <harness[:model]> "<goal>"`** and `templates/LEAD.prompt.template.md`. Claude hands
+  one goal to another lead: Antigravity 2 desktop, Antigravity CLI, OpenCode or Codex. That lead runs at the project
+  root, coordinates workers in the other harnesses, and commits `LEAD_REPORT_<id>.md`. Claude then checks the work.
+  The `lead` block in the config documents the default.
+- **`codex` worker preset.** It drives the OpenAI Codex CLI 0.163 bundled with the ChatGPT/Codex desktop app
+  (Microsoft Store, `OpenAI.Codex`): `codex exec --json -C <worktree> --add-dir <prompts> -s workspace-write
+  --approve-for-me`. It resumes with `exec resume`, takes `thread_id` from `thread.started`, and detects `turn.failed`.
+  Capabilities: `codex debug models`, `codex mcp list`, `codex plugin list`, `~/.codex/skills`.
+- `install.ps1 -Lead codex` prints the `codex mcp add agent-foreman -- python ...` command. It does not edit the
+  global Codex config.
+- `Resolve-Executable` accepts wildcards for versioned install folders (newest match).
+- Usage parsing for Codex `turn.completed` events.
+- README and descriptions rewritten with the full product names (Google Antigravity 2 desktop, Antigravity CLI,
+  Antigravity IDE, OpenAI Codex, ChatGPT desktop, OpenCode, DeepSeek Harness) and a harness support table.
+
+### Verified live (2026-10-25)
+- Codex worker: `-Check` OK (codex-cli 0.163.0-alpha.11); `-Capabilities` lists 1 model (`gpt-6-astra`), 5 MCP servers
+  and 29 enabled plugins. The JSON event format was confirmed from a real run (`thread.started` … `turn.failed`).
+- **Not verified:** a Codex task end to end. On this machine `codex exec` failed with "workspace routing discovery
+  failed", although TCP to chatgpt.com worked. Check `codex doctor` and your ChatGPT workspace. The Antigravity CLI
+  and Codex reading project skills from `.agents/skills` is also unverified.
+
+## 0.3.0
 
 Any harness can lead, and the most useful ideas from other orchestrators are built in (see docs/HOW-IT-WORKS.md for the sources).
 
