@@ -2,7 +2,9 @@
 # Meant to run in the background (Claude Code: run_in_background) so its exit wakes the Tech Lead.
 #
 #   watch-handoff.ps1 -Branch task/T1 -Handoff docs/handoffs/HANDOFF_T1.md [-Worker ag2 -SessionId <id>]
-#                     [-Repo .] [-TimeoutMin 180] [-StallMin 45] [-PollSeconds 60]
+#                     [-Repo .] [-TimeoutMin 180] [-StallMin 45] [-PollSeconds 60] [-Since <sha>]
+#
+# -Since: only a HANDOFF committed AFTER that commit counts (used after a fix round, when an old HANDOFF exists).
 #
 # Exit codes: 0 handoff committed | 2 stall (no worker activity for StallMin) | 3 timeout | 4 worker exited without
 # a handoff | 1 usage error. Prints one JSON line.
@@ -14,15 +16,17 @@ param(
     [string]$SessionId = '',
     [int]$TimeoutMin = 180,
     [int]$StallMin = 45,
-    [int]$PollSeconds = 60
+    [int]$PollSeconds = 60,
+    [string]$Since = ''
 )
 . "$PSScriptRoot/lib/Common.ps1"
 
 function Test-HandoffCommitted {
-    param([string]$Repo, [string]$Branch, [string]$Handoff)
+    param([string]$Repo, [string]$Branch, [string]$Handoff, [string]$Since = '')
     git -C $Repo rev-parse -q --verify "refs/heads/$Branch" *> $null
     if ($LASTEXITCODE -ne 0) { return $null }
-    $log = git -C $Repo log $Branch --format=%H -- $Handoff 2>$null
+    $range = if ($Since) { "$Since..$Branch" } else { $Branch }
+    $log = git -C $Repo log $range --format=%H -- $Handoff 2>$null
     if ($log) { return @($log)[0] }
     $null
 }
@@ -42,13 +46,13 @@ function Get-WorkerStatus {
 function Watch-Handoff {
     param([string]$Repo, [string]$Branch, [string]$Handoff, [string]$Worker, [string]$SessionId,
         [int]$TimeoutMin, [int]$StallMin, [int]$PollSeconds, [scriptblock]$SleepFn = { param($s) Start-Sleep -Seconds $s },
-        [scriptblock]$ClockFn = { Get-Date })
+        [scriptblock]$ClockFn = { Get-Date }, [string]$Since = '')
     $ErrorActionPreference = 'Stop'
     $start = & $ClockFn
     while ($true) {
         $now = & $ClockFn
         $el = [int]($now - $start).TotalSeconds
-        $sha = Test-HandoffCommitted $Repo $Branch $Handoff
+        $sha = Test-HandoffCommitted $Repo $Branch $Handoff $Since
         if ($sha) {
             return @{ Code = 0; Result = [ordered]@{ ok = $true; event = 'handoff'; branch = $Branch; commit = $sha; elapsedSec = $el } }
         }
@@ -80,7 +84,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         exit 1
     }
     $r = Watch-Handoff -Repo $Repo -Branch $Branch -Handoff $Handoff -Worker $Worker -SessionId $SessionId `
-        -TimeoutMin $TimeoutMin -StallMin $StallMin -PollSeconds $PollSeconds
+        -TimeoutMin $TimeoutMin -StallMin $StallMin -PollSeconds $PollSeconds -Since $Since
     [Console]::Out.WriteLine((ConvertTo-ResultLine $r.Result))
     exit $r.Code
 }

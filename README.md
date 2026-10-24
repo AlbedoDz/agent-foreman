@@ -6,7 +6,7 @@ for each worker's HANDOFF commit, **verifies the report against git and re-runs 
 
 [Tiếng Việt](README.vi.md)
 
-> Status: early (0.2.0). The AG2 integration uses Antigravity 2's bundled `agentapi` CLI and internal details that
+> Status: early (0.3.0). The AG2 integration uses Antigravity 2's bundled `agentapi` CLI and internal details that
 > may change in any AG2 update. The adapter detects this and refuses to guess. Read [docs/SECURITY.md](docs/SECURITY.md) first.
 
 ## Requirements
@@ -54,6 +54,18 @@ Ask Claude for multi-part work ("split this feature across agents"), and the `ha
 | `/agent-foreman:status` | worker state + HANDOFF yes/no per task |
 | `/agent-foreman:nudge T1` | read the transcript tail, send a specific nudge |
 | `/agent-foreman:review T1` | verify HANDOFF vs git, read the diff, re-run tests → GO (merge) / FIX |
+| `/agent-foreman:run T1 opencode` | hands-off: dispatch → watch → verify → automatic fix rounds → verdict (never merges) |
+
+## Any harness can lead
+
+The lead does not have to be Claude Code. `install.ps1 -Lead opencode,agy,ag2` puts the `agent-foreman-lead` skill in
+`.agents/skills/`, where OpenCode, the Antigravity CLI and AG2 read project skills. For OpenCode it also registers the
+**agent-foreman MCP server** (`.claude/orchestrator/bin/mcp/agent_foreman_mcp.py`, Python standard library only) in
+`opencode.json`. Its tools are `workers_list`, `worker_capabilities`, `task_new`, `dispatch`, `task_status`,
+`handoff_check`, `task_message`, `task_cancel`, `verify_handoff`, `task_run`, `task_run_result` and `task_cleanup`.
+Verified live: OpenCode as lead created a worktree and dispatched a task to AG2 through these tools; the work was
+then verified and merged. agy and AG2 read MCP servers only from global config; the installer prints the snippet
+instead of editing it.
 
 The workflow (Plan → Route → Isolate → Dispatch → Watch → Review gate → Merge/Fix → Fallback) is in
 [skills/harness-orchestrator/SKILL.md](skills/harness-orchestrator/SKILL.md).

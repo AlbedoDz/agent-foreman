@@ -156,6 +156,29 @@ function Find-TaskState {
     $null
 }
 
+function Get-LogUsage {
+    <# Token/cost usage of the last run, read from a worker's JSON-lines log. Known shapes:
+       agy        {"event":"result","result":{"usage":{"input_tokens":..,"output_tokens":..,"total_tokens":..}}}
+       OpenCode   {"type":"step_finish","part":{"tokens":{"input":..,"output":..,"reasoning":..},"cost":..}}  (summed)
+       other      the last object with a "usage" key #>
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $null }
+    $sum = [ordered]@{ input = 0; output = 0; reasoning = 0; cost = 0.0 }; $steps = 0; $last = $null
+    foreach ($line in Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue) {
+        if ($line -notmatch '"(usage|tokens)"') { continue }
+        try { $o = $line | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { continue }
+        if ($o['type'] -eq 'step_finish' -and $o['part'] -and $o['part']['tokens']) {
+            $t = $o['part']['tokens']; $steps++
+            $sum.input += [int64](Get-ConfigValue $t 'input' 0); $sum.output += [int64](Get-ConfigValue $t 'output' 0)
+            $sum.reasoning += [int64](Get-ConfigValue $t 'reasoning' 0); $sum.cost += [double](Get-ConfigValue $o 'part.cost' 0)
+        } elseif ($o['event'] -eq 'result' -and $o['result'] -and $o['result']['usage']) { $last = $o['result']['usage'] }
+        elseif ($o.Contains('usage')) { $last = $o['usage'] }
+    }
+    if ($steps) { $sum['total'] = $sum.input + $sum.output + $sum.reasoning; $sum['steps'] = $steps; return $sum }
+    if ($last) { return $last }
+    $null
+}
+
 function Get-ProcessTaskStatus {
     <# running = the harness process is still alive; idle = it exited. lastActivity = stdout log mtime. #>
     param([Parameter(Mandatory)][string]$Worker, [Parameter(Mandatory)][string]$SessionId)
@@ -164,7 +187,7 @@ function Get-ProcessTaskStatus {
     $last = if (Test-Path -LiteralPath $s.logPath) { (Get-Item -LiteralPath $s.logPath).LastWriteTime.ToString('o') } else { $null }
     $state = if (Test-ProcessAlive ([int]$s.pid)) { 'running' } else { 'idle' }
     [ordered]@{ ok = $true; worker = $Worker; sessionId = $SessionId; state = $state; lastActivity = $last; logPath = $s.logPath
-        stateSource = 'harness process alive (running) or exited (idle)' }
+        stateSource = 'harness process alive (running) or exited (idle)'; usage = (Get-LogUsage $s.logPath) }
 }
 
 function Get-TaskMessage {

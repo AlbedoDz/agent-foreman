@@ -71,6 +71,18 @@ TOOLS: list[dict[str, Any]] = [
                              "locked": _arr("Globs of checks that must stay byte-identical (locked tests)"),
                              "run": _arr("Check commands from the PLAN, run in the worktree; exit codes decide")},
                             ["task_id", "handoff"])},
+    {"name": "task_run", "description": "Start the automatic loop in the background: [task_new] -> dispatch -> watch -> verify -> up to fix_rounds automatic fix messages. Never merges. Poll task_run_result.",
+     "inputSchema": _schema({
+         "worker": WORKER, "task_id": _str("Task id"), "prompt_file": _str("Prompt file (omit when session_id is given)"),
+         "handoff": _str("HANDOFF path"), "session_id": _str("Already dispatched: watch this session instead of dispatching"),
+         "model": _str("Model id"), "agent": _str("Agent name"), "prefix": _str("/skill or @agent prefix"),
+         "allowed": _arr("Globs the task may change"), "forbidden": _arr("Globs it must not change"),
+         "locked": _arr("Locked globs (tests)"), "run": _arr("Check commands from the PLAN"),
+         "fix_rounds": {"type": "integer", "description": "Automatic fix rounds (default: fixRoundsMax from config)"},
+         "timeout_min": {"type": "integer", "description": "Per-round timeout in minutes (default 120)"}},
+         ["worker", "task_id", "handoff"])},
+    {"name": "task_run_result", "description": "Progress / final result of task_run: verdict running | verified | refuted | no-handoff, rounds, history.",
+     "inputSchema": _schema({"task_id": _str("Task id")}, ["task_id"])},
     {"name": "task_cleanup", "description": "Finish a task: mode 'merge' (merge --no-ff into the current branch) or 'discard'; removes the worktree and branch. Refuses dirty worktrees.",
      "inputSchema": _schema({"task_id": _str("Task id"), "mode": {"type": "string", "enum": ["merge", "discard"]}}, ["task_id", "mode"])},
 ]
@@ -166,6 +178,29 @@ def call_tool(name: str, a: dict[str, Any]) -> dict[str, Any]:
         if a.get("run"):
             args += ["-Run", "\n".join(a["run"])]
         return _run(BIN / "verify-handoff.ps1", args, timeout=1800)
+    if name == "task_run":
+        args = ["-Worker", a["worker"], "-TaskId", a["task_id"], "-Handoff", a["handoff"], "-Repo", "."]
+        for key, flag in (("prompt_file", "-PromptFile"), ("session_id", "-SessionId"), ("model", "-Model"),
+                          ("agent", "-Agent"), ("prefix", "-Prefix"), ("fix_rounds", "-FixRounds"), ("timeout_min", "-TimeoutMin")):
+            _opt(args, flag, a.get(key))
+        for key, flag in (("allowed", "-Allowed"), ("forbidden", "-Forbidden"), ("locked", "-Locked")):
+            if a.get(key):
+                args += [flag, ",".join(a[key])]
+        if a.get("run"):
+            args += ["-Run", "\n".join(a["run"])]
+        status = ORCH / "logs" / f"run-{a['task_id']}.json"
+        if status.exists():
+            status.unlink()
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen([PWSH, "-NoProfile", "-NonInteractive", "-File", str(BIN / "task-run.ps1"), *args], cwd=PROJECT,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+        return {"ok": True, "started": True, "taskId": a["task_id"], "statusFile": str(status),
+                "hint": "Poll task_run_result every few minutes; merge only after verdict=verified and your own diff read."}
+    if name == "task_run_result":
+        status = ORCH / "logs" / f"run-{a['task_id']}.json"
+        if not status.exists():
+            return {"ok": True, "taskId": a["task_id"], "verdict": "starting"}
+        return json.loads(status.read_text(encoding="utf-8-sig"))
     if name == "task_cleanup":
         flag = {"merge": "-Merge", "discard": "-Discard"}[a["mode"]]
         return _run(BIN / "task-cleanup.ps1", ["-Id", a["task_id"], flag])
@@ -192,7 +227,7 @@ def handle(msg: dict[str, Any]) -> dict[str, Any] | None:
             except (KeyError, ValueError) as exc:
                 out = {"ok": False, "error": str(exc), "hint": "Check the tool arguments (tools/list has the schema)."}
             result = {"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=True)}],
-                      "isError": not out.get("ok", False)}
+                      "isError": not out.get("ok", False) and out.get("verdict") not in ("running", "starting")}
         else:
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"method not found: {method}"}}
         return {"jsonrpc": "2.0", "id": mid, "result": result}

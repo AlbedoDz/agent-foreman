@@ -10,7 +10,7 @@ You plan, route, review and merge. Worker agents in OTHER harnesses write the co
 ## Tools
 Use the **agent-foreman MCP tools** when they are available:
 `workers_list`, `worker_check`, `worker_capabilities`, `task_new`, `dispatch`, `task_status`, `handoff_check`,
-`task_message`, `task_cancel`, `verify_handoff`, `task_cleanup`.
+`task_message`, `task_cancel`, `verify_handoff`, `task_cleanup`, `task_run`, `task_run_result`.
 Without MCP, run the same scripts from the project root, each printing one JSON line (`ok`, plus `error`/`hint` on failure):
 `pwsh -NoProfile -File .claude\orchestrator\bin\<script>.ps1 ...`. The scripts are `task-new`, `task-cleanup`,
 `verify-handoff`, `watch-handoff` and `adapters\<ag2|opencode|generic-cli>.ps1`.
@@ -38,6 +38,9 @@ For each task: `task_new` → write `.claude\orchestrator\<id>.prompt.md` from t
 the HANDOFF path, locked tests in full and the hard rules. Then `dispatch` (worker, task_id, prompt_file, model, agent, prefix).
 Run at most `maxParallel` tasks at a time, only from the current wave. Keep each `sessionId` in PLAN.md.
 
+Hands-off mode: `task_run` starts the whole loop for one task in the background (task_new → dispatch → watch →
+verify → up to fix_rounds automatic fix messages). It never merges. Poll `task_run_result` every few minutes.
+
 ## 4. Watch
 Poll `handoff_check` every minute or two. Between polls, `task_status` shows running/idle and the last activity.
 - If it has been quiet longer than `stallMin` (default 45): read the tail (AG2: `task_status` with `tail`) and send a
@@ -53,6 +56,13 @@ the HANDOFF). Only `verdict: verified` with no error findings can pass. Then rea
 - wrong versions reported;
 - measurement scripts never committed;
 - targets marked "met" that missed.
+
+Optional:
+- **Cross-harness review:** create `<id>-review` from `task/<id>` and dispatch `templates/REVIEW.prompt.template.md`
+  to a worker of a different model family. It writes only `REVIEW_<id>.md`.
+- **Race:** the same prompt to two workers (`<id>a`, `<id>b`). Keep the first verified one; `task_cancel` and
+  discard the other.
+`task_status` reports `usage` (tokens, and cost when available) for process workers.
 
 ## 6. Merge or fix
 - GO: `task_cleanup` mode `merge`, then update PLAN.md. After each wave, run the full suite on the base branch.

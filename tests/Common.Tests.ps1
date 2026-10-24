@@ -84,6 +84,25 @@ Describe 'Get-LoopbackPorts' {
     }
 }
 
+Describe 'Get-LogUsage' {
+    It 'sums OpenCode step_finish tokens and cost' {
+        $f = Join-Path $TestDrive 'oc.jsonl'
+        Set-Content $f @(
+            '{"type":"step_start","part":{}}',
+            '{"type":"step_finish","part":{"tokens":{"input":100,"output":20,"reasoning":5},"cost":0.01}}',
+            '{"type":"step_finish","part":{"tokens":{"input":50,"output":10,"reasoning":0},"cost":0.02}}')
+        $u = Get-LogUsage $f
+        $u.input | Should -Be 150; $u.output | Should -Be 30; $u.total | Should -Be 185; $u.steps | Should -Be 2
+        [Math]::Round($u.cost, 2) | Should -Be 0.03
+    }
+    It 'takes the agy result usage' {
+        $f = Join-Path $TestDrive 'agy.jsonl'
+        Set-Content $f @('{"event":"step_update","step_update":{"usage":{"input_tokens":1}}}', '{"event":"result","result":{"status":"SUCCESS","usage":{"input_tokens":2494,"total_tokens":2741}}}')
+        (Get-LogUsage $f).total_tokens | Should -Be 2741
+    }
+    It 'returns null without a log' { Get-LogUsage (Join-Path $TestDrive 'none.jsonl') | Should -BeNullOrEmpty }
+}
+
 Describe 'Get-ConfigValue' {
     It 'reads dotted keys with defaults' {
         $cfg = @{ workers = @{ ag2 = @{ projectId = 'p'; empty = '' } } }

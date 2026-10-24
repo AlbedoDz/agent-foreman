@@ -18,6 +18,27 @@ Claude Code (Tech Lead)                                        Workers
 Workers never report back over an API. The **only** completion signal is a commit that contains the HANDOFF file.
 That makes every worker interchangeable: anything that can edit files and run `git commit` in a folder can be a worker.
 
+## Any harness as lead
+
+Every control is a script with the same contract: one JSON line, exit code. Three ways to call the scripts, one behaviour:
+
+```
+Claude Code ──(skills, allow-listed pwsh calls)──┐
+OpenCode    ──(MCP: agent_foreman_mcp.py)────────┼──▶ .claude/orchestrator/bin/*.ps1 ──▶ AG2 / OpenCode / agy / dsh / CLI
+agy / AG2   ──(skill + shell, or global MCP)─────┘
+```
+
+The MCP server is a thin stdio JSON-RPC wrapper: no logic of its own, and no third-party packages. Long work
+(`task_run`) is started in the background, and the lead polls `task_run_result`.
+
+## What was borrowed from other orchestrators
+
+- **Verification contracts** (claw-orchestrator): the lead's checks decide, and an edited locked test refutes the run.
+- **Automatic verify → fix loop** (oh-my-claudecode's team-verify/fix, Shin-Agent-skill-kit's builder ≠ verifier): `task-run`.
+- **Background jobs with status and cancel, plus model routing** (antigravity-for-claude-code): `-Cancel`, `-Capabilities`, `-Model`.
+- **Cross-model review, councils and races** (claude-octopus, claw councils, crew-plugin-cc): the review template and race guidance.
+- **Per-engine usage** (claw spend caps): `usage` in `-Status`. It is reported only, not enforced yet.
+
 ## Why Claude Code can drive Antigravity 2
 
 Antigravity 2 (the desktop app, not the older Antigravity IDE) runs an agent hub process:

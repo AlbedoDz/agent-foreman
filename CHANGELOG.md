@@ -1,6 +1,38 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.3.0 (unreleased)
+
+Any harness can lead, and the most useful ideas from other orchestrators are built in (see docs/HOW-IT-WORKS.md for the sources).
+
+### Added
+- **Multi-lead.** `scripts/mcp/agent_foreman_mcp.py` is a standard-library MCP server over the same scripts, with 13 tools:
+  workers, capabilities, task_new, dispatch, status, handoff_check, message, cancel, verify, task_run, task_run_result, cleanup.
+  `install.ps1 -Lead opencode,agy,ag2` installs the harness-neutral `agent-foreman-lead` skill in `.agents/skills/`,
+  and registers the MCP server in `opencode.json`. For agy/AG2 it prints the global `mcp_config.json` snippet
+  instead of editing global files.
+- **Verification contract** in `verify-handoff`. `-Run` executes the PLAN's check commands in the worktree (or a
+  temporary checkout) with a timeout; `-Locked` refutes the run when a locked file was edited. Each run gets a
+  verdict (`verified` / `refuted` / `unverified`) and an evidence file.
+- **`task-run.ps1`, `/agent-foreman:run` and the MCP `task_run` tool.** One task runs hands-off: dispatch → watch →
+  verify → up to `fixRoundsMax` automatic fix messages, built from the findings and the failing check output.
+  `watch-handoff -Since` waits for a NEW HANDOFF after each fix. It never merges.
+- **`-Cancel`** for process workers (OpenCode, agy, dsh). It kills only the process tree this plugin started.
+- **Usage** (tokens, plus cost when the harness reports it) in `-Status` for OpenCode and agy logs.
+- **Cross-harness review** template (`templates/REVIEW.prompt.template.md`) and **race** guidance in both skills.
+
+### Fixed
+- `pwsh -File` passes only ONE value per `[string[]]` parameter. So multi-value `-Allowed/-Forbidden/-Locked` silently
+  used only the first value. Globs are now comma-separated in one argument; commands go one per line, or in `-RunFile`.
+
+### Verified live (2026-10-25)
+- **OpenCode as lead** (glm-5.3-flash, headless) loaded `agent-foreman-lead` from `.agents/skills`. Through MCP it
+  called `workers_list` → `task_new L1` → `dispatch` to **AG2** (flash). AG2 committed the HANDOFF after about 2 minutes.
+  The verification contract (`-Locked tests/*`, `-Run` with the task's tests) returned `verified`; the task was then merged.
+- On the same task, a full-suite check correctly **refuted** the run because a different, unmerged task's test was
+  still failing. Lesson, now in the skills: choose checks that this task alone can pass.
+- Usage read from real logs: agy G1 33,212 tokens; OpenCode O1 32,869 tokens over 9 steps.
+
+## 0.2.0
 
 More harnesses, and Claude can now use each harness's own models, agents, skills and plugins.
 

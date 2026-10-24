@@ -25,7 +25,7 @@ param(
 . "$PSScriptRoot/lib/Common.ps1"
 
 $script:PluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$script:BinScripts = @('task-new.ps1', 'task-cleanup.ps1', 'watch-handoff.ps1', 'verify-handoff.ps1')
+$script:BinScripts = @('task-new.ps1', 'task-cleanup.ps1', 'watch-handoff.ps1', 'verify-handoff.ps1', 'task-run.ps1')
 $script:IgnoreLines = @('.claude/orchestrator/logs/', '.claude/orchestrator/*.prompt.md', '.claude/orchestrator/orchestrator.config.json', '.claude/settings.local.json')
 
 function Get-AllowRules {

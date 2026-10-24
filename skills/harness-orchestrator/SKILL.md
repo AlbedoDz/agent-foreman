@@ -60,6 +60,14 @@ Only tasks of the current wave, at most `maxParallel` (default 3) at a time:
 `adapters\<worker>.ps1 -Dispatch -TaskId <id> -PromptFile .claude\orchestrator\<id>.prompt.md -Workspace ..\wt-<id> -Title "<id> <title>" [-Model <m>] [-Agent <a>] [-Prefix "/<skill>"]`
 Record `sessionId` in PLAN.md's status log. On `ok:false`, follow `hint`. Contract: [reference/adapter-contract.md](reference/adapter-contract.md).
 
+**Hands-off mode:** `task-run.ps1` does sections 3 to 6 for one task: worktree, dispatch, watch, verify, then up to
+`fixRoundsMax` automatic fix messages built from the verifier's findings and failing check output. It never merges.
+Start it in the background:
+`task-run.ps1 -Worker <w> -TaskId <id> -PromptFile .claude\orchestrator\<id>.prompt.md -Handoff <handoffDir>/HANDOFF_<id>.md -Allowed <globs> -Locked <globs> -Run "<cmd1>`n<cmd2>" [-Model ..] [-Agent ..] [-Prefix ..]`.
+When it exits: verdict `verified` → read the diff and merge; `refuted` after the rounds → take over or reroute;
+`no-handoff` → stall, timeout or worker exit (see section 5). Progress is in `logs\run-<id>.json`.
+`-Cancel -SessionId <sid>` stops a process worker (OpenCode, agy, dsh). AG2 conversations are stopped in the app.
+
 ## 5. Watch
 Start one background watcher per task (Claude Code: run it with `run_in_background`; its exit notifies you):
 `watch-handoff.ps1 -Repo . -Branch task/<id> -Handoff <handoffDir>/HANDOFF_<id>.md -Worker <worker> -SessionId <sid> -StallMin 45`
@@ -69,11 +77,14 @@ then watch again. Exit 3 = timeout. Exit 4 = the worker process exited without a
 AG2 `state` is inferred from the transcript's modification time, not reported by AG2. Treat it as a hint.
 
 ## 6. Review gate (never skip)
-1. `verify-handoff.ps1 -Repo . -Branch task/<id> -Handoff <handoffDir>/HANDOFF_<id>.md -Allowed <globs> -Forbidden <globs>`.
-   Any `error` finding means FIX, whatever the HANDOFF says.
+1. Verification contract: `verify-handoff.ps1 -Repo . -Branch task/<id> -Handoff <handoffDir>/HANDOFF_<id>.md -Allowed <globs> -Forbidden <globs> -Locked <globs> -Run "<cmd1>`n<cmd2>"`.
+   Globs are comma-separated in one argument; commands go one per line (or `-RunFile`). The commands come from
+   your PLAN, never from the HANDOFF. Only `verdict: verified` can pass. An edited locked file or a failing check
+   refutes the task, whatever the HANDOFF says. Pick checks that this task alone can pass: tests of tasks that are
+   not merged yet fail for reasons that are not the worker's fault.
 2. Read the full diff yourself: `git diff <base>...task/<id>`.
-3. Re-run the task tests, the full suite and the linter yourself, inside the worktree. Use your own numbers.
-4. Byte-compare locked tests: `git diff <base> task/<id> -- <locked files>` must be empty.
+3. Compare every number in the HANDOFF with the check output in `checks` (and the evidence file).
+4. Usage: `-Status` reports `usage` (tokens; cost when the harness reports it). Note heavy runs in PLAN.md.
 5. Walk the checklist in [reference/review-checklist.md](reference/review-checklist.md). Failures already seen in practice:
    - `DEVIATIONS: none` while the worker hit a real problem (a missing library API).
    - The commit SHA in the HANDOFF does not match `git log`.
@@ -81,6 +92,11 @@ AG2 `state` is inferred from the transcript's modification time, not reported by
    - A measurement script was used but never committed.
    - Every target was marked "met" although the HANDOFF's own numbers missed several.
 6. Verdict: GO or FIX (list each defect with file, line and expected behaviour).
+7. Optional **cross-harness review** for risky tasks: `task-new -Id <id>-review -Base task/<id>`, then dispatch
+   `templates\REVIEW.prompt.template.md` to a worker from a **different model family** than the implementer.
+   It writes only `REVIEW_<id>.md`. Read it next to your own review; disagreements are where bugs hide.
+8. Optional **race** for critical or uncertain tasks: the same prompt to two workers (`<id>a`, `<id>b`, separate
+   worktrees). Keep the first `verified` one, `-Cancel` the other and `task-cleanup -Discard` it.
 
 ## 7. Merge or fix
 - GO: `task-cleanup.ps1 -Id <id> -Merge` (merges with --no-ff, removes the worktree, deletes the branch). Update PLAN.md.

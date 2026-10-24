@@ -6,7 +6,7 @@ Sau đó Claude chờ commit HANDOFF, **đối chiếu báo cáo với git và t
 
 [English](README.md)
 
-> Trạng thái: bản sớm (0.2.0). Phần AG2 dùng CLI `agentapi` đi kèm Antigravity 2 cùng vài chi tiết nội bộ có thể đổi
+> Trạng thái: bản sớm (0.3.0). Phần AG2 dùng CLI `agentapi` đi kèm Antigravity 2 cùng vài chi tiết nội bộ có thể đổi
 > sau mỗi bản cập nhật. Khi phát hiện thay đổi, adapter sẽ dừng chứ không chạy mò. Hãy đọc [docs/SECURITY.md](docs/SECURITY.md) trước.
 
 ## Yêu cầu
@@ -57,6 +57,17 @@ Khi bạn nhờ Claude làm việc gồm nhiều phần (ví dụ "chia tính n�
 | `/agent-foreman:status` | trạng thái worker và cho biết đã có HANDOFF hay chưa, theo từng task |
 | `/agent-foreman:nudge T1` | đọc đuôi transcript rồi gửi nhắc việc cụ thể |
 | `/agent-foreman:review T1` | đối chiếu HANDOFF với git, đọc diff, chạy lại test, rồi kết luận GO (merge) hoặc FIX |
+| `/agent-foreman:run T1 opencode` | tự chạy trọn vòng: giao việc → chờ → kiểm chứng → tự gửi yêu cầu sửa → kết luận (không tự merge) |
+
+## Harness nào cũng có thể làm lead
+
+Lead không bắt buộc phải là Claude Code. `install.ps1 -Lead opencode,agy,ag2` đặt skill `agent-foreman-lead` vào
+`.agents/skills/`. Đây là thư mục OpenCode, Antigravity CLI và AG2 đều đọc skill của project. Với OpenCode, installer
+còn đăng ký **MCP server agent-foreman** (Python, chỉ dùng thư viện chuẩn) vào `opencode.json`. Server có các tool
+`workers_list`, `worker_capabilities`, `task_new`, `dispatch`, `task_status`, `handoff_check`, `task_message`,
+`task_cancel`, `verify_handoff`, `task_run`, `task_run_result` và `task_cleanup`.
+Đã chạy thật: OpenCode làm lead, tạo worktree rồi giao task cho AG2 qua các tool này; kết quả sau đó được kiểm chứng
+và merge. agy và AG2 chỉ đọc MCP server từ cấu hình global, nên installer in sẵn đoạn cấu hình thay vì tự sửa file global.
 
 Quy trình đầy đủ (Plan → Route → Isolate → Dispatch → Watch → Review gate → Merge/Fix → Fallback) nằm trong
 [skills/harness-orchestrator/SKILL.md](skills/harness-orchestrator/SKILL.md).

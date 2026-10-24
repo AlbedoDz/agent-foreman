@@ -1,7 +1,7 @@
 {
   "name": "agent-foreman",
   "displayName": "Agent Foreman",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Claude Code as Tech Lead (foreman) over Antigravity 2, OpenCode and any headless coding agent on Windows: wave plans, one git worktree per task, dispatch and watch, HANDOFF verified against git, review-gated merges.",
   "author": {
     "name": "AlbedoDz",

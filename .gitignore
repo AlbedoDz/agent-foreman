@@ -2,3 +2,5 @@
 logs/
 testResults.xml
 .secret-denylist
+__pycache__/
+*.pyc
