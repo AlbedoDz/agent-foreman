@@ -69,7 +69,8 @@ function Get-OrchestratorDir {
     $fromCwd = Join-Path (Get-Location).Path '.claude/orchestrator'
     if (Test-Path (Join-Path $fromCwd 'orchestrator.config.json')) { return $fromCwd }
     # installed layout: .claude/orchestrator/bin/{lib,adapters}/x.ps1
-    return (Resolve-Path (Join-Path $ScriptRoot '../..') -ErrorAction SilentlyContinue).Path
+    $r = Resolve-Path (Join-Path $ScriptRoot '../..') -ErrorAction SilentlyContinue
+    if ($r) { $r.Path } else { (Get-Location).Path }
 }
 
 function Read-OrchestratorConfig {
@@ -118,6 +119,69 @@ function Test-ProcessAlive {
     param([int]$ProcessId)
     if ($ProcessId -le 0) { return $false }
     [bool](Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
+function Join-ProcessArguments {
+    <# Quote an argument array for a Windows command line (CRT rules). #>
+    param([string[]]$Arguments)
+    ($Arguments | ForEach-Object {
+        if ($_ -ne '' -and $_ -notmatch '[\s"]') { $_ }
+        else { '"' + (($_ -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"' }
+    }) -join ' '
+}
+
+function Start-WorkerProcess {
+    <# Start a headless harness in the background, stdout/stderr to files. Mocked in tests. #>
+    param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory, [string]$StdOut, [string]$StdErr)
+    $p = Start-Process -FilePath $FilePath -ArgumentList (Join-ProcessArguments $Arguments) -WorkingDirectory $WorkingDirectory `
+        -RedirectStandardOutput $StdOut -RedirectStandardError $StdErr -WindowStyle Hidden -PassThru
+    @{ Id = $p.Id }
+}
+
+function Save-TaskState {
+    param([Parameter(Mandatory)][string]$Key, [Parameter(Mandatory)]$State)
+    $path = Join-Path (Get-LogDir) "$Key.state.json"
+    $State | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $path
+    $path
+}
+
+function Find-TaskState {
+    <# Find the state file written at dispatch time for a session id. #>
+    param([Parameter(Mandatory)][string]$SessionId)
+    foreach ($f in Get-ChildItem -LiteralPath (Get-LogDir) -Filter '*.state.json' -ErrorAction SilentlyContinue) {
+        $s = Get-Content -Raw $f.FullName | ConvertFrom-Json -AsHashtable
+        if ($s.sessionId -eq $SessionId) { $s['statePath'] = $f.FullName; return $s }
+    }
+    $null
+}
+
+function Get-ProcessTaskStatus {
+    <# running = the harness process is still alive; idle = it exited. lastActivity = stdout log mtime. #>
+    param([Parameter(Mandatory)][string]$Worker, [Parameter(Mandatory)][string]$SessionId)
+    $s = Find-TaskState $SessionId
+    if (-not $s) { return [ordered]@{ ok = $true; worker = $Worker; sessionId = $SessionId; state = 'unknown'; lastActivity = $null; stateSource = 'no state file for this session' } }
+    $last = if (Test-Path -LiteralPath $s.logPath) { (Get-Item -LiteralPath $s.logPath).LastWriteTime.ToString('o') } else { $null }
+    $state = if (Test-ProcessAlive ([int]$s.pid)) { 'running' } else { 'idle' }
+    [ordered]@{ ok = $true; worker = $Worker; sessionId = $SessionId; state = $state; lastActivity = $last; logPath = $s.logPath
+        stateSource = 'harness process alive (running) or exited (idle)' }
+}
+
+function Get-TaskMessage {
+    <# The one-line kickoff message every worker receives (wording verified with AG2). #>
+    param([Parameter(Mandatory)][string]$Workspace, [Parameter(Mandatory)][string]$PromptPath)
+    "Workspace: $Workspace. Read the file '$PromptPath' and follow its instructions exactly. " +
+        'It contains your rules, your single task and the HANDOFF format.'
+}
+
+function Resolve-DispatchInputs {
+    <# Validate -TaskId/-PromptFile/-Workspace and return absolute paths. #>
+    param([string]$TaskId, [string]$PromptFile, [string]$Workspace)
+    if (-not $TaskId -or -not $PromptFile) { New-AdapterError '-Dispatch needs -TaskId and -PromptFile.' 'See skills/harness-orchestrator/reference/adapter-contract.md.' }
+    $p = Resolve-Path -LiteralPath $PromptFile -ErrorAction SilentlyContinue
+    if (-not $p) { New-AdapterError "Prompt file not found: $PromptFile" 'Write the task prompt first (templates/TASK.prompt.md).' }
+    $w = Resolve-Path -LiteralPath $Workspace -ErrorAction SilentlyContinue
+    if (-not $w) { New-AdapterError "Workspace not found: $Workspace" 'Create the worktree first: task-new.ps1 -Id <task>.' }
+    @{ Prompt = $p.Path; Workspace = $w.Path }
 }
 
 function Read-TextFile {

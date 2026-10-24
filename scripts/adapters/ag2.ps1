@@ -219,17 +219,13 @@ function Invoke-Ag2Adapter {
     }
 
     if ($Dispatch) {
-        if (-not $TaskId -or -not $PromptFile) { New-AdapterError '-Dispatch needs -TaskId and -PromptFile.' 'See skills/harness-orchestrator/reference/adapter-contract.md.' }
+        $in = Resolve-DispatchInputs $TaskId $PromptFile $Workspace
         if (-not $pid_) { New-AdapterError 'AG2 needs a project id.' 'Set workers.ag2.projectId in .claude/orchestrator/orchestrator.config.json (find it with: ag2.ps1 -FindProjectId).' }
         if (-not $Model) { $Model = Get-ConfigValue $Config 'workers.ag2.defaultModel' 'flash' }
         if ($Model -notin 'flash_lite', 'flash', 'pro') { New-AdapterError "Unsupported AG2 model '$Model'." 'Use flash_lite, flash or pro.' }
-        $promptPath = (Resolve-Path -LiteralPath $PromptFile -ErrorAction SilentlyContinue).Path
-        if (-not $promptPath) { New-AdapterError "Prompt file not found: $PromptFile" 'Write the task prompt first (templates/TASK.prompt.md).' }
-        $ws = (Resolve-Path -LiteralPath $Workspace -ErrorAction SilentlyContinue).Path
-        if (-not $ws) { New-AdapterError "Workspace not found: $Workspace" 'Create the worktree first: task-new.ps1 -Id <task>.' }
+        $ws = $in.Workspace
         if (-not $Title) { $Title = $TaskId }
-        $text = "Workspace: $ws. Read the file '$promptPath' and follow its instructions exactly. " +
-            'It contains your rules, your single task and the HANDOFF format.'
+        $text = Get-TaskMessage $ws $in.Prompt
         $conn = Connect-Ag2
         $r = Invoke-OnPorts $conn @('new-conversation', "--model=$Model", "--title=$Title", $text)
         $m = [regex]::Match($r.Out, '"conversationId"\s*:\s*"([^"]+)"')
