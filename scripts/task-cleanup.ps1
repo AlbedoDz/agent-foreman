@@ -43,14 +43,27 @@ function Remove-TaskWorktree {
         }
         $merged = (git -C $top rev-parse HEAD).Trim()
     }
+    $leftover = $null
     if ($wt) {
         $out = git -C $top worktree remove $wt 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) { New-AdapterError "git worktree remove failed: $($out.Trim())" 'Close programs using that folder and retry.' }
+        if ($LASTEXITCODE -ne 0) {
+            # Typical on Windows: a harness (e.g. OpenCode's background service) still holds the folder open. git has
+            # already deleted the files; if nothing but empty folders is left, unregister it and report the leftover.
+            $files = @(Get-ChildItem -LiteralPath $wt -Recurse -File -Force -ErrorAction SilentlyContinue)
+            if ($files.Count -gt 0) {
+                $done = if ($merged) { "Merge done ($merged), but " } else { '' }
+                New-AdapterError "${done}git worktree remove failed: $($out.Trim())" 'A program still holds that folder (a worker app or editor). Close it, then run task-cleanup again.'
+            }
+            git -C $top worktree prune *> $null
+            $leftover = $wt
+        }
     }
     $flag = if ($Discard) { '-D' } else { '-d' }
     $out = git -C $top branch $flag $branch 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { New-AdapterError "Could not delete $branch (not merged?): $($out.Trim())" 'Use -Merge to merge it, or -Discard to drop it on purpose.' }
-    [ordered]@{ ok = $true; taskId = $Id; branch = $branch; worktreeRemoved = [bool]$wt; mergeCommit = $merged; discarded = [bool]$Discard }
+    $r = [ordered]@{ ok = $true; taskId = $Id; branch = $branch; worktreeRemoved = [bool]$wt; mergeCommit = $merged; discarded = [bool]$Discard }
+    if ($leftover) { $r['leftoverEmptyFolder'] = $leftover; $r['note'] = 'An empty folder is still held open by another program; delete it once that program releases it.' }
+    $r
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

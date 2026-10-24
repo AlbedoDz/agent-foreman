@@ -35,6 +35,8 @@ flags, and the `brain/<id>/.system_generated/logs/transcript.jsonl` layout.
 |---|---|
 | `provider.auth ... requires a credential` | The default model's provider has no key. Run `opencode auth login`, or pass `-Model provider/model` for a provider in `opencode auth list`, or set `workers.opencode.defaultModel`. |
 | `opencode exited before starting a session` | Run `opencode run --format json "hello"` in the worktree by hand to see the error. |
+| `sessionId` is `pid:<n>` | The model had not answered within `-WaitSeconds` and the session could not be found by title. Run `opencode session list` in the worktree. |
+| Run hangs after the first step, no error, no permission prompt in the log | The provider stalled (seen with one free-tier model). Stop the run (its pid is in `logs/<task>.state.json`) and dispatch again with another `-Model`. |
 | Worker exits without a HANDOFF (watcher exit 4) | Usually a refused permission. See SECURITY.md about `autoApprove`, then check `logs/<task>.opencode.jsonl`. |
 
 ## Git / worktrees
@@ -43,6 +45,7 @@ flags, and the `brain/<id>/.system_generated/logs/transcript.jsonl` layout.
 |---|---|
 | `Worktree path already exists` | A previous run was not cleaned up. Use `task-cleanup.ps1 -Id <id> -Merge` or `-Discard`. |
 | `has uncommitted changes` on cleanup | On purpose: nothing is ever force-deleted. Commit or remove the changes yourself. |
+| `leftoverEmptyFolder` after cleanup | The merge and branch deletion succeeded; another program (often OpenCode's background service) still holds the empty folder. Delete it later. |
 | Merge failed | The merge was aborted and nothing changed. Rebase the task branch, or send a fix prompt. |
 
 ## Claude Code permissions

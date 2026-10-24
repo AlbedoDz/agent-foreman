@@ -108,6 +108,20 @@ Describe 'task-new / verify-handoff / task-cleanup' {
         Test-Path (Join-Path $testRepo 'a.txt') | Should -BeTrue
         (git -C $testRepo branch --list 'task/T1') | Should -BeNullOrEmpty
     }
+    It 'merges and reports a leftover empty folder when another program holds the worktree open' {
+        Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        # a process whose working directory is the worktree locks the folder on Windows (like a worker app does)
+        $holder = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 30' -WorkingDirectory $taskWt -PassThru -WindowStyle Hidden
+        try {
+            Start-Sleep -Milliseconds 800
+            $c = Invoke-Script 'task-cleanup.ps1' @('-Id', 'T1', '-Merge')
+            $c.Code | Should -Be 0
+            $c.Json.mergeCommit | Should -Not -BeNullOrEmpty
+            $c.Json.leftoverEmptyFolder | Should -Not -BeNullOrEmpty
+            (git -C $testRepo worktree list --porcelain) -join ' ' | Should -Not -Match 'wt-T1'
+            (git -C $testRepo branch --list 'task/T1') | Should -BeNullOrEmpty
+        } finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
+    }
     It 'will not delete an unmerged branch without -Discard' {
         Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
         (Invoke-Script 'task-cleanup.ps1' @('-Id', 'T1')).Json.hint | Should -Match 'Discard'

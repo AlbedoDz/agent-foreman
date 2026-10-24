@@ -21,6 +21,7 @@ Describe 'opencode.ps1' {
         $env:AG2O_HOME = Join-Path $TestDrive 'orch'
         $script:prompt = Join-Path $TestDrive 'T1.prompt.md'; Set-Content $prompt 'x'
         $script:ws = Join-Path $TestDrive 'wt-T1'; New-Item -ItemType Directory -Force $ws | Out-Null
+        git -C $ws init -q 2>$null
         $script:cfg = @{ workers = @{ opencode = @{ command = 'opencode.cmd'; defaultModel = 'prov/model' } } }
         Mock Invoke-OpenCodeCli { @{ Out = '[]'; Code = 0 } } -ParameterFilter { $Arguments[0] -eq 'session' }
     }
@@ -78,6 +79,13 @@ Describe 'opencode.ps1' {
         Should -Invoke Start-WorkerProcess -ParameterFilter {
             $Arguments -contains '--session' -and $Arguments -contains 'ses_m' -and $Arguments -contains 'x/fast' -and $WorkingDirectory -eq $ws
         }
+    }
+    It '-Message refuses when the task worktree is gone' {
+        $gone = Join-Path $TestDrive 'wt-gone'; New-Item -ItemType Directory $gone | Out-Null
+        Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_gone"}'; @{ Id = 999999 } }
+        Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T9 -PromptFile $prompt -Workspace $gone -Config $cfg } | Out-Null
+        $f = Join-Path $TestDrive 'n3.md'; Set-Content $f 'x'
+        (Invoke-Run { Invoke-OpenCodeAdapter -Message -SessionId ses_gone -MessageFile $f -Config $cfg }).Json.error | Should -Match 'gone or not a git worktree'
     }
     It '-Message refuses while the session is still running' {
         Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_busy"}'; @{ Id = $PID } }

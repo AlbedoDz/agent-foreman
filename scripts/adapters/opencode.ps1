@@ -161,6 +161,7 @@ function Invoke-OpenCodeAdapter {
         $body = Read-TextFile $MessageFile 'Message file'
         $s = Find-TaskState $SessionId
         $ws = if ($s) { $s.workspace } else { (Get-Location).Path }
+        Assert-TaskWorkspace $ws
         $key = if ($s) { "$($s.taskId).msg-$((Get-Date).ToString('HHmmss'))" } else { "msg-$((Get-Date).ToString('yyyyMMdd-HHmmss'))" }
         if ($s -and (Test-ProcessAlive ([int]$s.pid))) {
             New-AdapterError "Session $SessionId is still running (pid $($s.pid)); a second run on it would race." 'Wait until -Status says idle, or stop that process, then send the message.'

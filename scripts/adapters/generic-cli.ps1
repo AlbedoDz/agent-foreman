@@ -110,6 +110,7 @@ function Invoke-GenericAdapter {
         $body = Read-TextFile $MessageFile 'Message file'
         $s = Find-TaskState $SessionId
         $ws = if ($s) { $s.workspace } else { (Get-Location).Path }
+        Assert-TaskWorkspace $ws
         $vals = @{ sessionId = $SessionId; messageFile = (Resolve-Path $MessageFile).Path; messageText = $body; workspace = $ws; model = $Model }
         $cmd = Expand-CommandTemplate (Get-WorkerSpec $Config $Worker 'message') $vals
         $key = if ($s) { "$($s.taskId).msg-$((Get-Date).ToString('HHmmss'))" } else { "msg-$((Get-Date).ToString('yyyyMMdd-HHmmss'))" }

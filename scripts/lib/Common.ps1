@@ -189,6 +189,15 @@ function Assert-TaskId {
     if ($Id -notmatch '^[A-Za-z0-9._-]+$') { New-AdapterError "Invalid or missing task id '$Id'." 'Use -Id with letters, digits, dot, dash or underscore (e.g. -Id T1).' }
 }
 
+function Assert-TaskWorkspace {
+    <# Messages must go to a live task worktree, never to a removed (empty) folder. #>
+    param([string]$Workspace)
+    git -C $Workspace rev-parse --is-inside-work-tree *> $null
+    if (-not $Workspace -or -not (Test-Path -LiteralPath $Workspace) -or $LASTEXITCODE -ne 0) {
+        New-AdapterError "The task workspace '$Workspace' is gone or not a git worktree (task already cleaned up?)." 'Messages only make sense for live tasks. Start a new task (task-new + -Dispatch) instead.'
+    }
+}
+
 function Read-TextFile {
     param([Parameter(Mandatory)][string]$Path, [string]$What = 'file')
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
