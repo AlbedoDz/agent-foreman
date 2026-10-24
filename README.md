@@ -1,12 +1,12 @@
 # agent-foreman
 
 **Use Claude Code as Tech Lead over other coding agents on Windows.** Claude plans the work in waves and gives each
-task its own git worktree. It dispatches the tasks to **Antigravity 2** (desktop), **OpenCode**, or any headless CLI harness. It waits
+task its own git worktree. It dispatches the tasks to **Antigravity 2** (desktop), **OpenCode**, the **Antigravity CLI** (`agy`), **DeepSeek Harness** (`dsh`), or any headless CLI harness, choosing each harness's own models, agents, skills and plugins per task (`-Capabilities`, `-Model`, `-Agent`, `-Prefix "/skill"`). It waits
 for each worker's HANDOFF commit, **verifies the report against git and re-runs the tests itself**, then merges or sends a fix.
 
 [Tiếng Việt](README.vi.md)
 
-> Status: early (0.1.0). The AG2 integration uses Antigravity 2's bundled `agentapi` CLI and internal details that
+> Status: early (0.2.0). The AG2 integration uses Antigravity 2's bundled `agentapi` CLI and internal details that
 > may change in any AG2 update. The adapter detects this and refuses to guess. Read [docs/SECURITY.md](docs/SECURITY.md) first.
 
 ## Requirements

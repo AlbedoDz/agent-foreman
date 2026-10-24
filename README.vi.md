@@ -1,12 +1,12 @@
 # agent-foreman
 
 **Dùng Claude Code làm Tech Lead điều phối các coding agent khác trên Windows.** Claude chia việc theo wave, cho mỗi
-task một git worktree riêng, rồi giao task cho **Antigravity 2** (bản desktop), **OpenCode** hoặc bất kỳ harness nào có CLI headless.
+task một git worktree riêng, rồi giao task cho **Antigravity 2** (bản desktop), **OpenCode**, **Antigravity CLI** (`agy`), **DeepSeek Harness** (`dsh`) hoặc bất kỳ harness nào có CLI headless. Với mỗi task, Claude chọn model, agent, skill và plugin có sẵn trong chính harness đó (`-Capabilities`, `-Model`, `-Agent`, `-Prefix "/skill"`).
 Sau đó Claude chờ commit HANDOFF, **đối chiếu báo cáo với git và tự chạy lại test**, rồi mới merge hoặc gửi yêu cầu sửa.
 
 [English](README.md)
 
-> Trạng thái: bản sớm (0.1.0). Phần AG2 dùng CLI `agentapi` đi kèm Antigravity 2 cùng vài chi tiết nội bộ có thể đổi
+> Trạng thái: bản sớm (0.2.0). Phần AG2 dùng CLI `agentapi` đi kèm Antigravity 2 cùng vài chi tiết nội bộ có thể đổi
 > sau mỗi bản cập nhật. Khi phát hiện thay đổi, adapter sẽ dừng chứ không chạy mò. Hãy đọc [docs/SECURITY.md](docs/SECURITY.md) trước.
 
 ## Yêu cầu

@@ -16,6 +16,7 @@ param(
     [switch]$Status,
     [switch]$Message,
     [switch]$FindProjectId,
+    [switch]$Capabilities,
     [string]$TaskId = '',
     [string]$PromptFile = '',
     [string]$Workspace = '.',
@@ -24,6 +25,8 @@ param(
     [string]$SessionId = '',
     [string]$MessageFile = '',
     [string]$ProjectId = '',
+    [string]$Agent = '',
+    [string]$Prefix = '',
     [int]$Tail = 0
 )
 . "$PSScriptRoot/../lib/Common.ps1"
@@ -149,7 +152,8 @@ function Resolve-ProjectId {
 
 function Invoke-Ag2Adapter {
     param(
-        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$FindProjectId,
+        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$FindProjectId, [switch]$Capabilities,
+        [string]$Agent = '', [string]$Prefix = '',
         [string]$TaskId = '', [string]$PromptFile = '', [string]$Workspace = '.', [string]$Title = '',
         [string]$Model = '', [string]$SessionId = '', [string]$MessageFile = '', [string]$ProjectId = '', [int]$Tail = 0,
         $Config = $null
@@ -157,6 +161,16 @@ function Invoke-Ag2Adapter {
     if ($null -eq $Config) { $Config = Read-OrchestratorConfig }
     $pid_ = Resolve-ProjectId $ProjectId $Config
     if ($pid_) { $env:ANTIGRAVITY_PROJECT_ID = $pid_ }
+
+    if ($Agent) {
+        New-AdapterError 'AG2 desktop agentapi has no agent option.' 'Name the skill or agent in the prompt, or use -Prefix "/<skill>"; for --agent use the agy (Antigravity CLI) worker.'
+    }
+
+    if ($Capabilities) {
+        # models are fixed by agentapi; skills/plugins/MCP come from the folders AG2 reads (workers.ag2.capabilities)
+        return [ordered]@{ ok = $true; worker = 'ag2'; permissions = 'set in the AG2 app'
+            capabilities = (Get-WorkerCapabilities $Config 'ag2' @{ models = @('flash_lite', 'flash', 'pro') }) }
+    }
 
     if ($Check) {
         $conn = Connect-Ag2
@@ -213,7 +227,7 @@ function Invoke-Ag2Adapter {
         if (-not $SessionId -or -not $MessageFile) { New-AdapterError '-Message needs -SessionId and -MessageFile.' 'Write the nudge to a file first.' }
         $body = Read-TextFile $MessageFile 'Message file'
         $conn = Connect-Ag2
-        Invoke-OnPorts $conn @('send-message', $SessionId, $body) | Out-Null
+        Invoke-OnPorts $conn @('send-message', $SessionId, (Add-MessagePrefix $Prefix $body)) | Out-Null
         Add-DispatchLog ([ordered]@{ worker = 'ag2'; action = 'message'; sessionId = $SessionId; file = $MessageFile })
         return [ordered]@{ ok = $true }
     }
@@ -225,7 +239,7 @@ function Invoke-Ag2Adapter {
         if ($Model -notin 'flash_lite', 'flash', 'pro') { New-AdapterError "Unsupported AG2 model '$Model'." 'Use flash_lite, flash or pro.' }
         $ws = $in.Workspace
         if (-not $Title) { $Title = $TaskId }
-        $text = Get-TaskMessage $ws $in.Prompt
+        $text = Add-MessagePrefix $Prefix (Get-TaskMessage $ws $in.Prompt)
         $conn = Connect-Ag2
         $r = Invoke-OnPorts $conn @('new-conversation', "--model=$Model", "--title=$Title", $text)
         $m = [regex]::Match($r.Out, '"conversationId"\s*:\s*"([^"]+)"')
@@ -236,7 +250,7 @@ function Invoke-Ag2Adapter {
         return [ordered]@{ ok = $true; worker = 'ag2'; taskId = $TaskId; sessionId = $sid; logPath = $log }
     }
 
-    New-AdapterError 'No mode given.' 'Use one of -Check, -Dispatch, -Status, -Message, -FindProjectId.'
+    New-AdapterError 'No mode given.' 'Use one of -Check, -Capabilities, -Dispatch, -Status, -Message, -FindProjectId.'
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

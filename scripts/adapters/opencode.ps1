@@ -14,6 +14,7 @@ param(
     [switch]$Dispatch,
     [switch]$Status,
     [switch]$Message,
+    [switch]$Capabilities,
     [string]$TaskId = '',
     [string]$PromptFile = '',
     [string]$Workspace = '.',
@@ -21,6 +22,8 @@ param(
     [string]$Model = '',
     [string]$SessionId = '',
     [string]$MessageFile = '',
+    [string]$Agent = '',
+    [string]$Prefix = '',
     [int]$WaitSeconds = 60
 )
 . "$PSScriptRoot/../lib/Common.ps1"
@@ -93,12 +96,18 @@ function Wait-OpenCodeSession {
     "pid:$ProcessId"
 }
 
+function Test-OpenCodeFull {
+    <# permissions=full (or the older autoApprove=true) -> --auto #>
+    param($Config)
+    (Get-PermissionMode $Config 'opencode') -eq 'full' -or [bool](Get-ConfigValue $Config 'workers.opencode.autoApprove' $false)
+}
+
 function Start-OpenCodeRun {
     param($Config, [string]$Workspace, [string]$Key, [string[]]$RunArgs, [int]$WaitSeconds, [string]$Title = '')
     $started = Get-Date
     $exe = Resolve-OpenCodeCommand $Config
     $args_ = @('run', '--format', 'json')
-    if (Get-ConfigValue $Config 'workers.opencode.autoApprove' $false) { $args_ += '--auto' }
+    if (Test-OpenCodeFull $Config) { $args_ += '--auto' }
     $args_ += $RunArgs
     $log = Join-Path (Get-LogDir) "$Key.opencode.jsonl"
     $err = Join-Path (Get-LogDir) "$Key.opencode.err.log"
@@ -110,19 +119,25 @@ function Start-OpenCodeRun {
 
 function Invoke-OpenCodeAdapter {
     param(
-        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message,
+        [switch]$Check, [switch]$Dispatch, [switch]$Status, [switch]$Message, [switch]$Capabilities,
+        [string]$Agent = '', [string]$Prefix = '',
         [string]$TaskId = '', [string]$PromptFile = '', [string]$Workspace = '.', [string]$Title = '',
         [string]$Model = '', [string]$SessionId = '', [string]$MessageFile = '', [int]$WaitSeconds = 60,
         $Config = $null
     )
     if ($null -eq $Config) { $Config = Read-OrchestratorConfig }
 
+    if ($Capabilities) {
+        return [ordered]@{ ok = $true; worker = 'opencode'; permissions = $(if (Test-OpenCodeFull $Config) { 'full' } else { Get-PermissionMode $Config 'opencode' })
+            capabilities = (Get-WorkerCapabilities $Config 'opencode') }
+    }
+
     if ($Check) {
         $exe = Resolve-OpenCodeCommand $Config
         $r = Invoke-OpenCodeCli -Exe $exe -Arguments @('--version')
         if ($r.Code -ne 0) { New-AdapterError "opencode --version failed: $($r.Out.Trim())" 'Reinstall opencode.' }
-        $auto = [bool](Get-ConfigValue $Config 'workers.opencode.autoApprove' $false)
-        $detail = "opencode found at $exe; autoApprove=$auto"
+        $auto = Test-OpenCodeFull $Config
+        $detail = "opencode found at $exe; full permissions=$auto"
         if (-not $auto) { $detail += ' (headless runs cannot answer permission prompts; see docs/SECURITY.md)' }
         return [ordered]@{ ok = $true; worker = 'opencode'; version = $r.Out.Trim(); detail = $detail }
     }
@@ -131,11 +146,13 @@ function Invoke-OpenCodeAdapter {
         $in = Resolve-DispatchInputs $TaskId $PromptFile $Workspace
         if (-not $Model) { $Model = Get-ConfigValue $Config 'workers.opencode.defaultModel' '' }
         if (-not $Title) { $Title = $TaskId }
+        if (-not $Agent) { $Agent = Get-ConfigValue $Config 'workers.opencode.defaultAgent' '' }
         $runArgs = @('--title', $Title)
         if ($Model) { $runArgs += @('-m', $Model) }
-        $runArgs += (Get-TaskMessage $in.Workspace $in.Prompt)
+        if ($Agent) { $runArgs += @('--agent', $Agent) }
+        $runArgs += (Add-MessagePrefix $Prefix (Get-TaskMessage $in.Workspace $in.Prompt))
         $r = Start-OpenCodeRun -Config $Config -Workspace $in.Workspace -Key $TaskId -RunArgs $runArgs -WaitSeconds $WaitSeconds -Title $Title
-        Save-TaskState $TaskId ([ordered]@{ worker = 'opencode'; taskId = $TaskId; sessionId = $r.SessionId; pid = $r.Pid; logPath = $r.Log; workspace = $in.Workspace; model = $Model }) | Out-Null
+        Save-TaskState $TaskId ([ordered]@{ worker = 'opencode'; taskId = $TaskId; sessionId = $r.SessionId; pid = $r.Pid; logPath = $r.Log; workspace = $in.Workspace; model = $Model; agent = $Agent }) | Out-Null
         Add-DispatchLog ([ordered]@{ worker = 'opencode'; action = 'dispatch'; taskId = $TaskId; sessionId = $r.SessionId; model = $Model; workspace = $in.Workspace })
         return [ordered]@{ ok = $true; worker = 'opencode'; taskId = $TaskId; sessionId = $r.SessionId; logPath = $r.Log }
     }
@@ -167,9 +184,11 @@ function Invoke-OpenCodeAdapter {
             New-AdapterError "Session $SessionId is still running (pid $($s.pid)); a second run on it would race." 'Wait until -Status says idle, or stop that process, then send the message.'
         }
         if (-not $Model) { $Model = if ($s -and $s['model']) { $s['model'] } else { Get-ConfigValue $Config 'workers.opencode.defaultModel' '' } }
+        if (-not $Agent -and $s -and $s['agent']) { $Agent = $s['agent'] }
         $msgArgs = @('--session', $SessionId)
         if ($Model) { $msgArgs += @('-m', $Model) }
-        $r = Start-OpenCodeRun -Config $Config -Workspace $ws -Key $key -RunArgs ($msgArgs + $body) -WaitSeconds $WaitSeconds
+        if ($Agent) { $msgArgs += @('--agent', $Agent) }
+        $r = Start-OpenCodeRun -Config $Config -Workspace $ws -Key $key -RunArgs ($msgArgs + (Add-MessagePrefix $Prefix $body)) -WaitSeconds $WaitSeconds
         if ($s) {
             $s.pid = $r.Pid; $s.logPath = $r.Log; $p = $s.statePath; $s.Remove('statePath')
             $s | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $p
@@ -178,7 +197,7 @@ function Invoke-OpenCodeAdapter {
         return [ordered]@{ ok = $true }
     }
 
-    New-AdapterError 'No mode given.' 'Use one of -Check, -Dispatch, -Status, -Message.'
+    New-AdapterError 'No mode given.' 'Use one of -Check, -Capabilities, -Dispatch, -Status, -Message.'
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

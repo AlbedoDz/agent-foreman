@@ -56,6 +56,11 @@ Describe 'Invoke-Guarded (JSON output contract)' {
         $r = Invoke-Guarded { [ordered]@{ detail = "remote https://$userinfo$ghp@github.com" } }
         $r.Line | Should -Not -Match 'a1a1a1'
     }
+    It 'emits pure ASCII even for non-ASCII content' {
+        $r = Invoke-Guarded { [ordered]@{ detail = "Tiếng Việt — ok" } }
+        $r.Line | Should -Match '^[\x20-\x7e]+$'
+        ($r.Line | ConvertFrom-Json).detail | Should -Be "Tiếng Việt — ok"
+    }
     It 'respects an explicit ok=false from the body' {
         (Invoke-Guarded { [ordered]@{ ok = $false; error = 'e'; hint = 'h' } }).ExitCode | Should -Be 1
     }

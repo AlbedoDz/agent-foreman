@@ -1,6 +1,50 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.2.0 (unreleased)
+
+More harnesses, and Claude can now use each harness's own models, agents, skills and plugins.
+
+### Added
+- Ready-made `generic-cli` workers in the config template:
+  - `agy`: Antigravity CLI. `--print --output-format stream-json`, `--conversation` to resume, `--add-dir` for the prompt folder.
+  - `dsh`: DeepSeek Harness. `dsh headless --json`, `--session-id` to resume.
+- `-Capabilities` on every adapter. It lists models, agents, skills (name + description from `SKILL.md`), plugins and MCP
+  servers, driven by `workers.<w>.capabilities` (listing commands, skill folders, or fixed lists).
+- `-Agent <name>` (OpenCode `--agent`, agy `--agent`) and `-Prefix "/<skill>" | "@<agent>"`. The prefix goes in front of the
+  kickoff line, so the harness expands its own skill or command first.
+- Permission levels `workers.<w>.permissions`: `default`, `edits` or `full`. For agy they map to `--mode accept-edits` and
+  `--dangerously-skip-permissions`; for OpenCode, `full` means `--auto`.
+- `generic-cli`:
+  - `%ENV%` expansion in commands;
+  - an empty optional value is dropped together with its flag;
+  - list-valued placeholders such as `{permissions}` are spliced in as separate arguments;
+  - `errorPattern` / `errorHint` fail a dispatch at once on a known error;
+  - `-Message` reuses the dispatch model and agent, and refuses while the session's process is still running.
+- The harness-orchestrator skill has a "Use each harness fully" step, with details in `reference/worker-capabilities.md`.
+
+### Fixed
+- `generic-cli -Check` with a single argument (`agy --version`) passed it character by character (string splatting).
+- Listing commands now launch the `.exe` or `.cmd` of an npm CLI, not its extension-less shell shim.
+- The JSON output line escapes non-ASCII characters, so console code pages cannot corrupt it between processes.
+
+### Verified live (2026-10-24)
+- `-Check` OK for all four workers: AG2 (it had moved to a new loopback port and was found again), OpenCode 2.1.4, agy 1.4.7, dsh 0.2.1.
+- `-Capabilities`: AG2 3 models and skills; OpenCode 300 models, 2 agents, 10 skills, MCP; agy 13 models, 4 plugins, 4 MCP
+  servers, skills; dsh profile model.
+- agy with `-Prefix "/test-driven-development"`: the worker first loaded that skill's `SKILL.md`, then read the prompt
+  through `--add-dir`, then the test file.
+- dsh without an API key: `-Dispatch` failed within seconds with `MISSING_CREDENTIAL` and the fix hint.
+
+### Known limits (verified)
+- agy headless with `edits` cannot run shell commands (`git`, `python`): they are auto-denied, so the worker stops before
+  committing. A `.agents/settings.json` allow rule inside the workspace was **not** honored. Options are agy's global
+  allow rules (`command(<prefix>)` in `~/.gemini/antigravity-cli/settings.json`; their format was not verified) or
+  `permissions: full`.
+- Claude Code's auto mode refuses to launch a `full` (skip-permissions) worker ("Create Unsafe Agents"). That run has
+  to be approved by the user.
+- dsh needs a DeepSeek API key for its headless profile before it can do work.
+
+## 0.1.0
 
 First packaging of a Claude Code to Antigravity 2 orchestration workflow that was used in a real project
 (about 15 tasks dispatched to AG2 by script, plus several pasted by hand).

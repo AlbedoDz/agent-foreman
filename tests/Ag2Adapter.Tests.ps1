@@ -149,6 +149,23 @@ Describe '-Status' {
     }
 }
 
+Describe '-Capabilities, -Prefix, -Agent' {
+    It 'lists the fixed agentapi models without contacting AG2' {
+        Mock Get-CimInstance { throw 'must not be called' }
+        $r = Invoke-Run @{ Capabilities = $true }
+        $r.Json.capabilities.models | Should -Be @('flash_lite', 'flash', 'pro')
+    }
+    It 'puts -Prefix in front of the kickoff message' {
+        $p = Join-Path $TestDrive 'P.prompt.md'; Set-Content $p 'x'
+        $w = Join-Path $TestDrive 'wt-P'; New-Item -ItemType Directory -Force $w | Out-Null
+        (Invoke-Run @{ Dispatch = $true; TaskId = 'P'; PromptFile = $p; Workspace = $w; ProjectId = 'p'; Prefix = '/tdd' }).Code | Should -Be 0
+        Should -Invoke Invoke-AgentApi -ParameterFilter { $Arguments[0] -eq 'new-conversation' -and $Arguments[3] -like '/tdd Workspace: *' }
+    }
+    It 'refuses -Agent with a pointer to the agy worker' {
+        (Invoke-Run @{ Check = $true; Agent = 'x' }).Json.hint | Should -Match 'agy'
+    }
+}
+
 Describe '-Message and -FindProjectId' {
     It 'sends the file content to the conversation' {
         $f = Join-Path $TestDrive 'nudge.md'; Set-Content $f 'please continue'

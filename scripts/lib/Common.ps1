@@ -35,7 +35,8 @@ function New-AdapterError {
 function ConvertTo-ResultLine {
     <# One-line, redacted JSON. #>
     param([Parameter(Mandatory)]$Result)
-    Protect-Secret ($Result | ConvertTo-Json -Compress -Depth 8)
+    # EscapeNonAscii: pure-ASCII line, so console code pages cannot corrupt it between processes
+    Protect-Secret ($Result | ConvertTo-Json -Compress -Depth 8 -EscapeHandling EscapeNonAscii)
 }
 
 function Invoke-Guarded {
@@ -196,6 +197,99 @@ function Assert-TaskWorkspace {
     if (-not $Workspace -or -not (Test-Path -LiteralPath $Workspace) -or $LASTEXITCODE -ne 0) {
         New-AdapterError "The task workspace '$Workspace' is gone or not a git worktree (task already cleaned up?)." 'Messages only make sense for live tasks. Start a new task (task-new + -Dispatch) instead.'
     }
+}
+
+function Expand-UserPath {
+    <# %ENV% variables and a leading ~ #>
+    param([string]$Path)
+    $p = [Environment]::ExpandEnvironmentVariables($Path)
+    if ($p -match '^~[\\/]') { $p = Join-Path $env:USERPROFILE $p.Substring(2) }
+    $p
+}
+
+function Get-SkillsFromDirs {
+    <# Skills = sub-folders holding a SKILL.md; name/description come from its frontmatter. Dirs may contain wildcards. #>
+    param([string[]]$Dirs)
+    $seen = @{}
+    foreach ($d in $Dirs) {
+        foreach ($root in @(Resolve-Path -Path (Expand-UserPath $d) -ErrorAction SilentlyContinue)) {
+            foreach ($f in Get-ChildItem -LiteralPath $root.Path -Directory -ErrorAction SilentlyContinue) {
+                $md = Join-Path $f.FullName 'SKILL.md'
+                if (-not (Test-Path -LiteralPath $md)) { continue }
+                $head = (Get-Content -LiteralPath $md -TotalCount 15 -ErrorAction SilentlyContinue) -join "`n"
+                $name = if ($head -match '(?m)^name:\s*["'']?([^"''\r\n]+)') { $Matches[1].Trim() } else { $f.Name }
+                if ($seen.ContainsKey($name)) { continue }
+                $seen[$name] = $true
+                $desc = if ($head -match '(?m)^description:\s*["'']?([^\r\n]+)') { $Matches[1].Trim(' ', '"', "'") } else { '' }
+                if ($desc.Length -gt 140) { $desc = $desc.Substring(0, 140) + '...' }
+                [ordered]@{ name = $name; description = $desc; source = $root.Path }
+            }
+        }
+    }
+}
+
+function Resolve-Executable {
+    <# A file Start-Process can launch: an existing path, or the .exe/.cmd/.bat on PATH (npm also installs an
+       extension-less sh shim and a .ps1 next to the .cmd, which Start-Process cannot run). #>
+    param([string]$Name)
+    if (Test-Path -LiteralPath $Name -PathType Leaf) { return (Resolve-Path -LiteralPath $Name).Path }
+    $c = Get-Command $Name -CommandType Application -All -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in '.exe', '.cmd', '.bat', '.com' } | Select-Object -First 1
+    if ($c) { $c.Source } else { $null }
+}
+
+function Invoke-CapabilityCommand {
+    <# Run a listing command (e.g. `agy models`) with a timeout; return its non-empty output lines. Mocked in tests. #>
+    param([string[]]$Command, [int]$TimeoutSec = 90)
+    $exe = Resolve-Executable (Expand-UserPath $Command[0])
+    if (-not $exe) { return @("(not available: $($Command[0]) not found)") }
+    $out = [IO.Path]::GetTempFileName(); $err = [IO.Path]::GetTempFileName()
+    try {
+        $p = Start-Process -FilePath $exe -ArgumentList (Join-ProcessArguments @($Command | Select-Object -Skip 1)) `
+            -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+        if (-not $p.WaitForExit($TimeoutSec * 1000)) { $p.Kill($true); return @("(timed out after $TimeoutSec s)") }
+        @(Get-Content -LiteralPath $out | Where-Object { $_.Trim() } | ForEach-Object { $_.TrimEnd() } | Select-Object -First 300)
+    } finally { Remove-Item -LiteralPath $out, $err -ErrorAction SilentlyContinue }
+}
+
+function Get-WorkerCapabilities {
+    <# What a worker can use: models, agents, skills, plugins, MCP servers... from workers.<w>.capabilities:
+         "<category>": { "cmd": ["agy","models"], "skip": 1, "pattern": "^(\\S+)" }   listing command, optional header skip
+         "skills":     { "dirs": ["~/.gemini/antigravity/skills", "~/.gemini/config/plugins/*/skills"] }
+         "<category>": ["static", "values"]                                              fixed list #>
+    param($Config, [string]$Worker, $Static = @{})
+    $caps = [ordered]@{}
+    foreach ($k in $Static.Keys) { $caps[$k] = $Static[$k] }
+    $spec = Get-ConfigValue $Config "workers.$Worker.capabilities" @{}
+    foreach ($cat in $spec.Keys) {
+        $s = $spec[$cat]
+        if ($s -is [System.Collections.IList]) { $caps[$cat] = @($s); continue }
+        if ($s.Contains('dirs')) { $caps[$cat] = @(Get-SkillsFromDirs @($s['dirs'])); continue }
+        if ($s.Contains('cmd')) {
+            try { $lines = @(Invoke-CapabilityCommand @($s['cmd'])) }
+            catch { $caps[$cat] = @("(error: $($_.Exception.Message))"); continue }
+            $skip = [int](Get-ConfigValue $s 'skip' 0)
+            if ($skip -gt 0) { $lines = @($lines | Select-Object -Skip $skip) }
+            $pat = Get-ConfigValue $s 'pattern' ''
+            if ($pat) { $lines = @($lines | ForEach-Object { $m = [regex]::Match($_, $pat); if ($m.Success) { $m.Groups[1].Value } }) }
+            $caps[$cat] = $lines
+        }
+    }
+    $caps
+}
+
+function Get-PermissionMode {
+    <# default | edits | full. `full` lets the worker act without asking: only for worktrees you can throw away. #>
+    param($Config, [string]$Worker)
+    $m = [string](Get-ConfigValue $Config "workers.$Worker.permissions" 'default')
+    if ($m -notin 'default', 'edits', 'full') { New-AdapterError "workers.$Worker.permissions must be default, edits or full (got '$m')." 'Fix orchestrator.config.json.' }
+    $m
+}
+
+function Add-MessagePrefix {
+    <# Put a slash command / @agent / skill hint in front of the kickoff line, e.g. "/tdd" or "@reviewer". #>
+    param([string]$Prefix, [string]$Text)
+    if ($Prefix) { "$($Prefix.Trim()) $Text" } else { $Text }
 }
 
 function Read-TextFile {

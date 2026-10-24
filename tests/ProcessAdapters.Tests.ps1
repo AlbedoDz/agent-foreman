@@ -32,7 +32,7 @@ Describe 'opencode.ps1' {
         $r = Invoke-Run { Invoke-OpenCodeAdapter -Check -Config $cfg }
         $r.Json.worker | Should -Be 'opencode'
         $r.Json.version | Should -Be '2.0.32'
-        $r.Json.detail | Should -Match 'autoApprove=False'
+        $r.Json.detail | Should -Match 'full permissions=False'
     }
     It '-Dispatch starts opencode in the worktree and returns the sessionID from the first event' {
         Mock Start-WorkerProcess {
@@ -49,9 +49,9 @@ Describe 'opencode.ps1' {
         }
         (Invoke-Run { Invoke-OpenCodeAdapter -Status -SessionId ses_abc }).Json.state | Should -Be 'running'
     }
-    It 'passes --auto only when autoApprove is set' {
+    It 'passes --auto only for permissions=full' {
         Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_x"}'; @{ Id = $PID } }
-        $cfg.workers.opencode.autoApprove = $true
+        $cfg.workers.opencode.permissions = 'full'
         Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T2 -PromptFile $prompt -Workspace $ws -Config $cfg } | Out-Null
         Should -Invoke Start-WorkerProcess -ParameterFilter { $Arguments -contains '--auto' }
     }
@@ -105,6 +105,25 @@ Describe 'opencode.ps1' {
         $st.state | Should -Be 'running'
         ([datetime]$st.lastActivity) | Should -BeGreaterThan (Get-Date).AddMinutes(-1)
     }
+    It 'passes -Agent and puts -Prefix in front of the kickoff line' {
+        Mock Start-WorkerProcess { Set-Content $StdOut '{"sessionID":"ses_a"}'; @{ Id = $PID } }
+        Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T10 -PromptFile $prompt -Workspace $ws -Agent plan -Prefix '/review' -Config $cfg } | Out-Null
+        Should -Invoke Start-WorkerProcess -ParameterFilter {
+            ($Arguments -join ' ') -match '--agent plan' -and $Arguments[-1] -like '/review Workspace: *'
+        }
+    }
+    It '-Capabilities lists models from the CLI, static agents and skills from folders' {
+        $skills = Join-Path $TestDrive 'oc-skills'
+        New-Item -ItemType Directory -Force (Join-Path $skills 'tdd') | Out-Null
+        Set-Content (Join-Path $skills 'tdd/SKILL.md') "---`nname: tdd`ndescription: Red then green.`n---`nbody"
+        $cfg.workers.opencode.capabilities = @{ models = @{ cmd = @('opencode', 'models') }; agents = @('build', 'plan'); skills = @{ dirs = @($skills) } }
+        Mock Invoke-CapabilityCommand { @('prov/a', 'prov/b') }
+        $c = (Invoke-Run { Invoke-OpenCodeAdapter -Capabilities -Config $cfg }).Json.capabilities
+        $c.models | Should -Be @('prov/a', 'prov/b')
+        $c.agents | Should -Be @('build', 'plan')
+        $c.skills[0].name | Should -Be 'tdd'
+        $c.skills[0].description | Should -Be 'Red then green.'
+    }
     It 'fails cleanly with a hint when the prompt is missing' {
         $r = Invoke-Run { Invoke-OpenCodeAdapter -Dispatch -TaskId T6 -PromptFile 'nope.md' -Workspace $ws -Config $cfg }
         $r.Json.ok | Should -BeFalse
@@ -117,27 +136,110 @@ Describe 'generic-cli.ps1' {
         $env:AG2O_HOME = Join-Path $TestDrive 'orch-g'
         $script:prompt = Join-Path $TestDrive 'G1.prompt.md'; Set-Content $prompt 'x'
         $script:ws = Join-Path $TestDrive 'wt-G1'; New-Item -ItemType Directory -Force $ws | Out-Null
+        git -C $ws init -q 2>$null
         $script:cfg = @{ workers = @{ tool = @{
             dispatch = @('tool', 'exec', '--model', '{model}', '{message}')
-            message = @('tool', 'resume', '{sessionId}', '{messageText}')
-            sessionIdPattern = 'session=(\w+)'; defaultModel = 'm1' } } }
+            message = @('tool', 'resume', '{sessionId}', '--model', '{model}', '{messageText}')
+            sessionIdPattern = 'session=(\w+)'; defaultModel = 'm1'
+            errorPattern = 'NO_KEY[^\r\n]*'; errorHint = 'add the key in the app' } } }
+        Mock Assert-Executable { }
     }
     AfterAll { Remove-Item Env:AG2O_HOME -ErrorAction SilentlyContinue }
 
     It 'expands placeholders and extracts the session id' {
         Mock Start-WorkerProcess { Set-Content $StdOut 'booting... session=abc123'; @{ Id = $PID } }
-        $r = Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G1 -PromptFile $prompt -Workspace $ws -Config $cfg }
+        $r = Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G1 -PromptFile $prompt -Workspace $ws -WaitSeconds 6 -Config $cfg }
         $r.Json.sessionId | Should -Be 'abc123'
         $r.Json.worker | Should -Be 'tool'
         Should -Invoke Start-WorkerProcess -ParameterFilter { $FilePath -eq 'tool' -and $Arguments[2] -eq 'm1' -and $Arguments[3] -like 'Workspace: *' }
     }
-    It 'falls back to a pid-based id when no session id appears' {
+    It '-Check passes a single argument intact (regression: splatting a string sent it char by char)' {
+        $cfg.workers.tool.check = @('git', '--version')
+        $r = Invoke-Run { Invoke-GenericAdapter -Worker tool -Check -Config $cfg }
+        $r.Json.ok | Should -BeTrue
+        $r.Json.version | Should -Match '^git version'
+    }
+    It 'splices {permissions} by mode and passes -Agent and -Prefix' {
+        $cfg.workers.tool.dispatch = @('tool', 'run', '--agent', '{agent}', '--add-dir', '{promptDir}', '{permissions}', '{message}')
+        $cfg.workers.tool.permissions = 'full'
+        $cfg.workers.tool.permissionArgs = @{ default = @(); edits = @('--mode', 'edits'); full = @('--yolo', '--sandbox=off') }
+        Mock Start-WorkerProcess { Set-Content $StdOut 'session=p1'; @{ Id = $PID } }
+        Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G8 -PromptFile $prompt -Workspace $ws -Agent rev -Prefix '@helper' -WaitSeconds 6 -Config $cfg } | Out-Null
+        Should -Invoke Start-WorkerProcess -ParameterFilter {
+            $Arguments[0] -eq 'run' -and $Arguments[1] -eq '--agent' -and $Arguments[2] -eq 'rev' -and $Arguments[3] -eq '--add-dir' -and
+            $Arguments[4] -eq $TestDrive -and $Arguments[5] -eq '--yolo' -and $Arguments[6] -eq '--sandbox=off' -and $Arguments[7] -like '@helper Workspace: *'
+        }
+    }
+    It 'rejects an unknown permission mode' {
+        $cfg.workers.tool.permissions = 'god'
+        (Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G9 -PromptFile $prompt -Workspace $ws -Config $cfg }).Json.error | Should -Match 'default, edits or full'
+    }
+    It 'drops an empty optional value together with its flag' {
+        Expand-CommandTemplate @('t', '--model', '{model}', '--x', '{message}') @{ model = ''; message = 'hi' } | Should -Be @('t', '--x', 'hi')
+    }
+    It 'expands %ENV% variables in the command' {
+        $env:AG2O_TEST_DIR = 'C:\h'
+        try { (Expand-CommandTemplate @('%AG2O_TEST_DIR%\bin\x.cmd', 'run') @{})[0] | Should -Be 'C:\h\bin\x.cmd' }
+        finally { Remove-Item Env:AG2O_TEST_DIR }
+    }
+    It 'fails fast with the configured hint when errorPattern matches' {
+        Mock Start-WorkerProcess { Set-Content $StdOut 'session=s1'; Set-Content $StdErr 'fatal: NO_KEY for provider'; @{ Id = $PID } }
+        $r = Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G4 -PromptFile $prompt -Workspace $ws -WaitSeconds 6 -Config $cfg }
+        $r.Code | Should -Be 1
+        $r.Json.error | Should -Match 'NO_KEY for provider'
+        $r.Json.hint | Should -Be 'add the key in the app'
+    }
+    It 'reports a worker that exits before giving a session id' {
+        Mock Start-WorkerProcess { Set-Content $StdOut 'nothing'; Set-Content $StdErr 'boom'; @{ Id = 999999 } }
+        $r = Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G2 -PromptFile $prompt -Workspace $ws -Config $cfg }
+        $r.Json.error | Should -Match 'exited before reporting a session.*boom'
+    }
+    It 'falls back to a pid-based id when no sessionIdPattern is configured' {
+        $cfg.workers.tool.Remove('sessionIdPattern'); $cfg.workers.tool.Remove('errorPattern')
         Mock Start-WorkerProcess { Set-Content $StdOut 'nothing'; @{ Id = 999999 } }
-        (Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G2 -PromptFile $prompt -Workspace $ws -Config $cfg }).Json.sessionId | Should -Be 'pid:999999'
+        (Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G5 -PromptFile $prompt -Workspace $ws -Config $cfg }).Json.sessionId | Should -Be 'pid:999999'
+    }
+    It '-Message resumes an idle session with the dispatch model and refuses while it runs' {
+        Mock Start-WorkerProcess { Set-Content $StdOut 'session=g6'; @{ Id = 999999 } }
+        Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G6 -PromptFile $prompt -Workspace $ws -Model 'm9' -WaitSeconds 6 -Config $cfg } | Out-Null
+        $f = Join-Path $TestDrive 'g.md'; Set-Content $f 'continue'
+        (Invoke-Run { Invoke-GenericAdapter -Worker tool -Message -SessionId g6 -MessageFile $f -Config $cfg }).Json.ok | Should -BeTrue
+        Should -Invoke Start-WorkerProcess -ParameterFilter { $Arguments[0] -eq 'resume' -and $Arguments[1] -eq 'g6' -and $Arguments -contains 'm9' }
+        Mock Start-WorkerProcess { Set-Content $StdOut 'session=g7'; @{ Id = $PID } }
+        Invoke-Run { Invoke-GenericAdapter -Worker tool -Dispatch -TaskId G7 -PromptFile $prompt -Workspace $ws -WaitSeconds 6 -Config $cfg } | Out-Null
+        (Invoke-Run { Invoke-GenericAdapter -Worker tool -Message -SessionId g7 -MessageFile $f -Config $cfg }).Json.error | Should -Match 'still running'
     }
     It 'explains a missing config entry' {
         $r = Invoke-Run { Invoke-GenericAdapter -Worker ghost -Dispatch -TaskId G3 -PromptFile $prompt -Workspace $ws -Config $cfg }
         $r.Json.error | Should -Match 'workers.ghost.dispatch'
         $r.Json.hint | Should -Match 'ADDING-A-HARNESS'
+    }
+}
+
+Describe 'shipped harness presets (agy, dsh)' {
+    BeforeAll {
+        $script:tpl = Get-Content -Raw "$PSScriptRoot/../templates/orchestrator.config.json" | ConvertFrom-Json -AsHashtable
+    }
+    It 'agy: print mode, stream-json, model and accept-edits; conversation id from the init event' {
+        $cmd = Expand-CommandTemplate $tpl.workers.agy.dispatch @{ message = 'GO'; model = 'gemini-x'; agent = ''; promptDir = 'C:\p'
+            permissions = @($tpl.workers.agy.permissionArgs[$tpl.workers.agy.permissions]) }
+        $cmd | Should -Be @('agy', '--print', 'GO', '--output-format', 'stream-json', '--model', 'gemini-x', '--add-dir', 'C:\p', '--mode', 'accept-edits')
+        @($tpl.workers.agy.permissionArgs.full) | Should -Be @('--dangerously-skip-permissions')
+        'jetski: no output produced — a tool required the "read_file" permission that headless mode cannot prompt for, so it was auto-denied.' |
+            Should -Match $tpl.workers.agy.errorPattern
+        $init = '{"event": "init", "conversation_id": "conv-abc", "init": {}}'
+        [regex]::Match($init, $tpl.workers.agy.sessionIdPattern).Groups[1].Value | Should -Be 'conv-abc'
+        '{"event": "result", "result": {"status": "SUCCESS"}}' | Should -Not -Match $tpl.workers.agy.errorPattern
+        '{"event": "result", "result": {"status": "ERROR_QUOTA"}}' | Should -Match $tpl.workers.agy.errorPattern
+        (Expand-CommandTemplate $tpl.workers.agy.message @{ messageText = 'm'; sessionId = 'c1'; model = '' }) -join ' ' |
+            Should -Be 'agy --print m --conversation c1 --output-format stream-json'
+    }
+    It 'dsh: headless --json from the app install; session id and missing-credential detection' {
+        $cmd = Expand-CommandTemplate $tpl.workers.dsh.dispatch @{ message = 'GO'; model = '' }
+        $cmd[0] | Should -Be (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd')
+        $cmd[1..3] | Should -Be @('headless', '--json', 'GO')
+        [regex]::Match('{"type": "session", "sessionId": "session-a512", "cwd": "x"}', $tpl.workers.dsh.sessionIdPattern).Groups[1].Value | Should -Be 'session-a512'
+        'dsh: MISSING_CREDENTIAL: llm-deepseek: no API key' | Should -Match $tpl.workers.dsh.errorPattern
+        (Expand-CommandTemplate $tpl.workers.dsh.message @{ messageText = 'm'; sessionId = 's1' })[1..5] | Should -Be @('headless', '--json', '--session-id', 's1', 'm')
     }
 }

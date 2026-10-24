@@ -14,7 +14,9 @@
     "refactor": "opencode",
     "interface-contract": "claude",
     "review": "claude",
-    "merge": "claude"
+    "merge": "claude",
+    "second-opinion": "agy",
+    "cheap-bulk": "dsh"
   },
   "workers": {
     "ag2": {
@@ -22,21 +24,175 @@
       "enabled": true,
       "projectId": "",
       "defaultModel": "flash",
-      "idleAfterMin": 5
+      "idleAfterMin": 5,
+      "capabilities": {
+        "skills": {
+          "dirs": [
+            "~/.gemini/antigravity/skills",
+            "~/.gemini/antigravity/builtin/skills",
+            "~/.gemini/config/skills",
+            "~/.gemini/config/plugins/*/skills",
+            "~/.gemini/skills"
+          ]
+        }
+      }
     },
     "opencode": {
       "adapter": "opencode",
       "enabled": true,
       "defaultModel": "",
-      "autoApprove": false
+      "permissions": "default",
+      "defaultAgent": "",
+      "capabilities": {
+        "models": {
+          "cmd": [
+            "opencode",
+            "models"
+          ]
+        },
+        "agents": [
+          "build",
+          "plan"
+        ],
+        "skills": {
+          "dirs": [
+            "~/.config/opencode/skills"
+          ]
+        },
+        "mcp": {
+          "cmd": [
+            "opencode",
+            "mcp",
+            "list"
+          ]
+        }
+      }
     },
-    "example-cli": {
+    "agy": {
       "adapter": "generic-cli",
       "enabled": false,
-      "check": ["example-cli", "--version"],
-      "dispatch": ["example-cli", "exec", "--model", "{model}", "{message}"],
-      "message": ["example-cli", "exec", "--resume", "{sessionId}", "{messageText}"],
-      "sessionIdPattern": "\"session_id\"\\s*:\\s*\"([^\"]+)\""
+      "defaultModel": "gemini-3.8-flash-medium",
+      "check": [
+        "agy",
+        "--version"
+      ],
+      "dispatch": [
+        "agy",
+        "--print",
+        "{message}",
+        "--output-format",
+        "stream-json",
+        "--model",
+        "{model}",
+        "--agent",
+        "{agent}",
+        "--add-dir",
+        "{promptDir}",
+        "{permissions}"
+      ],
+      "message": [
+        "agy",
+        "--print",
+        "{messageText}",
+        "--conversation",
+        "{sessionId}",
+        "--output-format",
+        "stream-json",
+        "--model",
+        "{model}",
+        "--agent",
+        "{agent}",
+        "--add-dir",
+        "{promptDir}",
+        "{permissions}"
+      ],
+      "sessionIdPattern": "\"conversation_id\"\\s*:\\s*\"([^\"]+)\"",
+      "errorPattern": "\"event\"\\s*:\\s*\"result\"[^\\r\\n]*\"status\"\\s*:\\s*\"(?!SUCCESS)[A-Z_]+\"[^\\r\\n]*|no output produced[^\\r\\n]*|auto-denied[^\\r\\n]*",
+      "errorHint": "Antigravity CLI stopped. If a tool was auto-denied, headless mode could not ask for permission: raise workers.agy.permissions (edits or full), or add an allow rule in agy settings. Otherwise check `agy models` and your Antigravity sign-in.",
+      "permissions": "edits",
+      "defaultAgent": "",
+      "permissionArgs": {
+        "default": [],
+        "edits": [
+          "--mode",
+          "accept-edits"
+        ],
+        "full": [
+          "--dangerously-skip-permissions"
+        ]
+      },
+      "capabilities": {
+        "models": {
+          "cmd": [
+            "agy",
+            "models"
+          ],
+          "pattern": "^([\\w.-]+)\\t"
+        },
+        "agents": {
+          "cmd": [
+            "agy",
+            "agents"
+          ]
+        },
+        "plugins": {
+          "cmd": [
+            "agy",
+            "plugin",
+            "list"
+          ],
+          "skip": 1
+        },
+        "mcp": {
+          "cmd": [
+            "agy",
+            "mcp",
+            "list"
+          ],
+          "skip": 1,
+          "pattern": "^(\\S+)"
+        },
+        "skills": {
+          "dirs": [
+            "~/.gemini/antigravity-cli/builtin/skills",
+            "~/.gemini/config/skills",
+            "~/.gemini/config/plugins/*/skills",
+            "~/.gemini/skills"
+          ]
+        }
+      }
+    },
+    "dsh": {
+      "adapter": "generic-cli",
+      "enabled": false,
+      "defaultModel": "",
+      "check": [
+        "%LOCALAPPDATA%\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd",
+        "-V"
+      ],
+      "dispatch": [
+        "%LOCALAPPDATA%\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd",
+        "headless",
+        "--json",
+        "{message}"
+      ],
+      "message": [
+        "%LOCALAPPDATA%\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd",
+        "headless",
+        "--json",
+        "--session-id",
+        "{sessionId}",
+        "{messageText}"
+      ],
+      "sessionIdPattern": "\"sessionId\"\\s*:\\s*\"([^\"]+)\"",
+      "errorPattern": "MISSING_CREDENTIAL[^\\r\\n]*|\"kind\"\\s*:\\s*\"error\"[^\\r\\n]*",
+      "errorHint": "DeepSeek Harness has no usable model credential for the headless profile. Add your DeepSeek API key in the DeepSeek Harness app (Models page), or set DEEPSEEK_API_KEY in the environment Claude Code runs in. Never put the key in orchestrator.config.json.",
+      "capabilities": {
+        "models": [
+          "deepseek-flash (headless profile default; change it in the DeepSeek Harness app)"
+        ]
+      }
     }
-  }
+  },
+  "permissionModes": "default = the harness asks (headless: denied); edits = may edit files in its worktree; full = may run anything without asking (only for disposable worktrees)"
 }

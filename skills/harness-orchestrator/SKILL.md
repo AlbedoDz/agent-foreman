@@ -29,9 +29,25 @@ Default routing (the user's `routing` config wins; details in [reference/routing
 | UI, read-heavy exploration, test writing | `ag2` model `flash` |
 | Hard spike, unclear design, measurement work | `ag2` model `pro` |
 | Scoped logic, refactor inside a few files | `opencode` |
+| Second opinion / parallel attempt with another model family | `agy` (Antigravity CLI, `--model` from `agy models`) |
+| Cheap bulk work | `dsh` (DeepSeek Harness, needs its API key) |
 | Interface contracts, review, merge, final fixes | you (Claude) |
 
-AG2 models are only `flash_lite`, `flash` or `pro`.
+AG2 desktop models are only `flash_lite`, `flash` or `pro`. `agy` and `dsh` are `generic-cli` workers: call
+`adapters\generic-cli.ps1 -Worker agy|dsh ...` with the same switches.
+
+**Use each harness fully.** Once per session, before routing, run `adapters\<worker>.ps1 -Capabilities` for every
+enabled worker (for generic workers, `generic-cli.ps1 -Worker <name> -Capabilities`). It lists the worker's models,
+agents, skills (name + description), plugins and MCP servers. Then, for each task:
+- pick the **model** that fits the task from that list (`-Model`): a strong model for design work, a fast one for mechanical work;
+- pick an **agent** if the harness has a fitting one (`-Agent`: OpenCode `build`/`plan`, agy agents). The AG2 desktop has none;
+- invoke a **skill or command** the worker already has, by name: `-Prefix "/<skill>"` puts it in front of the kickoff
+  line (for example `/test-driven-development`). `@<agent>` mentions work the same way where the harness supports them.
+  Also name skills, plugins and MCP tools in the prompt's TASK section ("use your codegraph MCP to find callers");
+- set the **permission level** per worker in config (`workers.<w>.permissions`): `edits` lets it edit its worktree,
+  `full` lets it run anything without asking. Claude Code's auto mode may refuse to launch a `full` worker. If it does,
+  tell the user, and let the user decide (see the plugin's docs/SECURITY.md). Never work around that refusal.
+Details: [reference/worker-capabilities.md](reference/worker-capabilities.md).
 
 ## 3. Isolate
 For each task: `task-new.ps1 -Id <id>` creates `..\wt-<id>` on branch `task/<id>` from HEAD.
@@ -41,7 +57,7 @@ the HANDOFF path is `<handoffDir>/HANDOFF_<id>.md` inside the worktree, and lock
 
 ## 4. Dispatch
 Only tasks of the current wave, at most `maxParallel` (default 3) at a time:
-`adapters\<worker>.ps1 -Dispatch -TaskId <id> -PromptFile .claude\orchestrator\<id>.prompt.md -Workspace ..\wt-<id> -Title "<id> <title>" [-Model flash|pro|provider/model]`
+`adapters\<worker>.ps1 -Dispatch -TaskId <id> -PromptFile .claude\orchestrator\<id>.prompt.md -Workspace ..\wt-<id> -Title "<id> <title>" [-Model <m>] [-Agent <a>] [-Prefix "/<skill>"]`
 Record `sessionId` in PLAN.md's status log. On `ok:false`, follow `hint`. Contract: [reference/adapter-contract.md](reference/adapter-contract.md).
 
 ## 5. Watch
