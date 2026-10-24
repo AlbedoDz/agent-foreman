@@ -184,6 +184,11 @@ function Resolve-DispatchInputs {
     @{ Prompt = $p.Path; Workspace = $w.Path }
 }
 
+function Assert-TaskId {
+    param([string]$Id)
+    if ($Id -notmatch '^[A-Za-z0-9._-]+$') { New-AdapterError "Invalid or missing task id '$Id'." 'Use -Id with letters, digits, dot, dash or underscore (e.g. -Id T1).' }
+}
+
 function Read-TextFile {
     param([Parameter(Mandatory)][string]$Path, [string]$What = 'file')
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
