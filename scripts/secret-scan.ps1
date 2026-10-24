@@ -21,7 +21,7 @@ $patterns = [ordered]@{
     'github-token'     = '\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}'
     'github-pat'       = '\bgithub_pat_[A-Za-z0-9_]{20,}'
     'url-credentials'  = '[a-z][a-z0-9+.-]*://[^/\s:@''"]+:[^/\s@''"]+@'
-    'csrf-token'       = '--csrf_token[ =]+(?![<${])[^\s''"]{8,}'
+    'csrf-token'       = '--csrf_token[ =]+(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{12,}'
     'uuid'             = '\b(?!([0-9a-f])\1{7}-)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
     'windows-userpath' = '(?i)\b[a-z]:[\\/]+Users[\\/]+(?!<|%|\$|you\b|me\b|USERNAME\b|Public\b|Default\b)[A-Za-z0-9._-]+'
     'posix-userpath'   = '(?i)/(c|d|e)/Users/(?!<|you\b|me\b)[A-Za-z0-9._-]+'
