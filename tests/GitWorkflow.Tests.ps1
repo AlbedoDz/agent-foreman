@@ -119,6 +119,35 @@ Describe 'task-new / verify-handoff / task-cleanup' {
         $v.Json.verdict | Should -Be 'verified'
         @(git -C $testRepo worktree list).Count | Should -Be 1
     }
+    It 'checks run on the merge preview by default (base moved after branching), on the branch with -OnBranchOnly' {
+        Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('a.txt', 'handoffs/HANDOFF_T1.md')
+        Set-Content (Join-Path $testRepo 'm.txt') 'merged meanwhile'; git -C $testRepo add m.txt; git -C $testRepo commit -q -m sibling
+        $check = 'if ((Test-Path m.txt) -and (Test-Path a.txt)) { exit 0 } else { exit 5 }'
+        $v = Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md', '-Run', $check)
+        $v.Json.verdict | Should -Be 'verified'
+        $v.Json.checkedOn | Should -Match 'merge preview'
+        $b = Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md', '-Run', $check, '-OnBranchOnly')
+        $b.Json.verdict | Should -Be 'refuted'
+        @(git -C $testRepo worktree list).Count | Should -Be 2
+    }
+    It 'reports a merge conflict with the current HEAD' {
+        Set-Content (Join-Path $taskWt 'README.md') 'branch version'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('README.md', 'handoffs/HANDOFF_T1.md')
+        Set-Content (Join-Path $testRepo 'README.md') 'main version'; git -C $testRepo add README.md; git -C $testRepo commit -q -m main-edit
+        $v = Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md', '-Run', 'exit 0')
+        $v.Json.findings.code | Should -Contain 'merge-conflict'
+        $v.Json.verdict | Should -Be 'refuted'
+    }
+    It 'ignores tool caches (warn) in verify and cleanup, but not real leftovers' {
+        Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
+        Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('a.txt', 'handoffs/HANDOFF_T1.md')
+        New-Item -ItemType File -Force (Join-Path $taskWt 'pkg/__pycache__/m.cpython-312.pyc') | Out-Null
+        $v = Invoke-Script 'verify-handoff.ps1' @('-Branch', 'task/T1', '-Handoff', 'handoffs/HANDOFF_T1.md')
+        $v.Json.ok | Should -BeTrue
+        $v.Json.findings.code | Should -Contain 'cache-files'
+        (Invoke-Script 'task-cleanup.ps1' @('-Id', 'T1', '-Merge')).Json.ok | Should -BeTrue
+    }
     It 'unverified when no checks are given' {
         Set-Content (Join-Path $taskWt 'a.txt') 'a'; git -C $taskWt add -A; git -C $taskWt commit -q -m work
         Write-Handoff $taskWt (git -C $taskWt rev-parse --short HEAD) @('a.txt', 'handoffs/HANDOFF_T1.md')

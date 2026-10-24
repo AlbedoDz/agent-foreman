@@ -6,7 +6,7 @@ Claude Code (Opus 5.5) stays the default lead; the lead can be handed to another
 Adds OpenAI Codex / the ChatGPT & Codex desktop app.
 
 ### Added
-- **`/agent-foreman:delegate-lead <harness[:model]> "<goal>"`** and `templates/LEAD.prompt.template.md`. Claude hands
+- **`/agent-foreman:delegate-lead <harness[:model]> "<goal>"`** (verified with Antigravity 2 as lead, see below) and `templates/LEAD.prompt.template.md`. Claude hands
   one goal to another lead: Antigravity 2 desktop, Antigravity CLI, OpenCode or Codex. That lead runs at the project
   root, coordinates workers in the other harnesses, and commits `LEAD_REPORT_<id>.md`. Claude then checks the work.
   The `lead` block in the config documents the default.
@@ -21,7 +21,19 @@ Adds OpenAI Codex / the ChatGPT & Codex desktop app.
 - README and descriptions rewritten with the full product names (Google Antigravity 2 desktop, Antigravity CLI,
   Antigravity IDE, OpenAI Codex, ChatGPT desktop, OpenCode, DeepSeek Harness) and a harness support table.
 
+- **Merge-preview verification:** `verify-handoff -Run` checks now run on a temporary merge of the current HEAD with
+  the task branch, i.e. on what a merge would produce. A conflict becomes a `merge-conflict` finding;
+  `-OnBranchOnly` keeps the old behaviour. Check commands run with `PYTHONDONTWRITEBYTECODE=1`.
+- Tool caches (`__pycache__`, `*.pyc`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`) no longer count as uncommitted work.
+  verify reports a `cache-files` warning, and `task-cleanup` drops them with the worktree. Real leftovers still block both.
+
 ### Verified live (2026-10-25)
+- **Antigravity 2 desktop as lead (model `pro`) directing an OpenCode worker**, via `delegate-lead`:
+  - Antigravity 2 dispatched G1 to OpenCode (glm-5.3-flash). OpenCode implemented `snake_case` and committed its HANDOFF.
+  - Antigravity 2 ran the verification contract and got `refuted`, so it **did not merge**.
+  - It found the cause itself: the branch predated a sibling task's merge.
+  - It committed an honest `LEAD_REPORT` with usage (41,773 tokens) and next steps.
+  - Claude, as the default lead, re-verified on the new merge preview (`verified`, 12/12 tests) and merged. `main` passes the full suite.
 - Codex worker: `-Check` OK (codex-cli 0.163.0-alpha.11); `-Capabilities` lists 1 model (`gpt-6-astra`), 5 MCP servers
   and 29 enabled plugins. The JSON event format was confirmed from a real run (`thread.started` … `turn.failed`).
 - **Not verified:** a Codex task end to end. On this machine `codex exec` failed with "workspace routing discovery

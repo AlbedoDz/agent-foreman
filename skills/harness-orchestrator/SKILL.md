@@ -80,8 +80,9 @@ AG2 `state` is inferred from the transcript's modification time, not reported by
 1. Verification contract: `verify-handoff.ps1 -Repo . -Branch task/<id> -Handoff <handoffDir>/HANDOFF_<id>.md -Allowed <globs> -Forbidden <globs> -Locked <globs> -Run "<cmd1>`n<cmd2>"`.
    Globs are comma-separated in one argument; commands go one per line (or `-RunFile`). The commands come from
    your PLAN, never from the HANDOFF. Only `verdict: verified` can pass. An edited locked file or a failing check
-   refutes the task, whatever the HANDOFF says. Pick checks that this task alone can pass: tests of tasks that are
-   not merged yet fail for reasons that are not the worker's fault.
+   refutes the task, whatever the HANDOFF says. The checks run on a **merge preview** (current HEAD + the branch),
+   so tasks merged meanwhile count and conflicts show up as `merge-conflict`. `-OnBranchOnly` checks the branch alone.
+   Do not include tests of tasks that are not merged yet.
 2. Read the full diff yourself: `git diff <base>...task/<id>`.
 3. Compare every number in the HANDOFF with the check output in `checks` (and the evidence file).
 4. Usage: `-Status` reports `usage` (tokens; cost when the harness reports it). Note heavy runs in PLAN.md.

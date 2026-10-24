@@ -6,8 +6,10 @@
 # Lists: `pwsh -File` passes only ONE value per [string[]] parameter, so globs go comma-separated in one argument
 # and commands one per line (or one per line in -RunFile).
 #
-# Verification contract: -Run commands come from the PLAN (never from the HANDOFF). They run in the task's worktree
-# (or a temporary detached checkout of the branch) with a timeout, and their exit codes decide. If a -Locked file
+# Verification contract: -Run commands come from the PLAN (never from the HANDOFF). By default they run on a merge
+# preview (temporary checkout of the current HEAD with the task branch merged in, not committed), so they judge what
+# a merge would really produce; a conflict is a finding. -OnBranchOnly runs them on the branch as committed.
+# Each command has a timeout and its exit code decides. If a -Locked file
 # was modified, the run is refuted: a worker must not edit the checks that judge it.
 # verdict: verified (no error and every -Run passed) | refuted (any error) | unverified (no error, nothing run).
 # Evidence (findings + command tails) is written to .claude/orchestrator/logs/verify-<branch>.json.
@@ -22,6 +24,7 @@
 #   uncommitted-changes                 the task worktree still has uncommitted work (e.g. a script never committed)
 #   locked-file-modified                a -Locked file (e.g. a locked test) differs from the base
 #   check-failed / check-timeout        a -Run command exited non-zero or ran past -RunTimeoutSec
+#   merge-conflict                      the branch does not merge cleanly into the current HEAD
 #   no-sha / no-status / no-files-list  report fields missing (warnings)
 # It cannot check numeric claims ("met", "pass"): those stay in manualChecks for the reviewer.
 # Exit 0 when there is no error-level finding.
@@ -35,6 +38,7 @@ param(
     [string[]]$Run = @(),
     [string]$RunFile = '',
     [int]$RunTimeoutSec = 600,
+    [switch]$OnBranchOnly,
     [string]$Repo = '.'
 )
 . "$PSScriptRoot/lib/Common.ps1"
@@ -68,6 +72,8 @@ function Invoke-Check {
     param([string]$Command, [string]$Dir, [int]$TimeoutSec)
     $out = [IO.Path]::GetTempFileName(); $err = [IO.Path]::GetTempFileName()
     $sw = [Diagnostics.Stopwatch]::StartNew()
+    $prevBytecode = $env:PYTHONDONTWRITEBYTECODE
+    $env:PYTHONDONTWRITEBYTECODE = '1'   # checks must not leave caches in the worktree (inherited by the child)
     try {
         $p = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList (Join-ProcessArguments @('-NoProfile', '-NonInteractive', '-Command', $Command)) `
             -WorkingDirectory $Dir -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
@@ -76,7 +82,10 @@ function Invoke-Check {
         $tail = @(@(Get-Content -LiteralPath $out) + @(Get-Content -LiteralPath $err) | Where-Object { $_ -and $_.Trim() } | Select-Object -Last 15)
         [ordered]@{ command = $Command; exitCode = $(if ($timedOut) { $null } else { $p.ExitCode }); timedOut = $timedOut
             seconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1); tail = $tail }
-    } finally { Remove-Item -LiteralPath $out, $err -ErrorAction SilentlyContinue }
+    } finally {
+        Remove-Item -LiteralPath $out, $err -ErrorAction SilentlyContinue
+        $env:PYTHONDONTWRITEBYTECODE = $prevBytecode
+    }
 }
 
 function Find-BranchWorktree {
@@ -91,7 +100,7 @@ function Find-BranchWorktree {
 
 function Test-Handoff {
     param([string]$Repo, [string]$Branch, [string]$Handoff, [string]$Base, [string[]]$Allowed, [string[]]$Forbidden,
-        [string[]]$Locked = @(), [string[]]$Run = @(), [int]$RunTimeoutSec = 600)
+        [string[]]$Locked = @(), [string[]]$Run = @(), [int]$RunTimeoutSec = 600, [switch]$OnBranchOnly)
     if (-not $Branch -or -not $Handoff) { New-AdapterError '-Branch and -Handoff are required.' 'e.g. -Branch task/T1 -Handoff docs/handoffs/HANDOFF_T1.md' }
     $Handoff = $Handoff -replace '\\', '/'
     git -C $Repo rev-parse -q --verify "refs/heads/$Branch" *> $null
@@ -144,26 +153,45 @@ function Test-Handoff {
 
     $wt = Find-BranchWorktree $Repo $Branch
     if ($wt) {
-        $dirty = @(git -C $wt status --porcelain)
-        if ($dirty) { Add-Finding 'error' 'uncommitted-changes' "$($dirty.Count) uncommitted change(s) in $wt (work that was never committed)." }
+        # tool caches created by running tests are not work; everything else uncommitted is
+        $all = @(git -C $wt status --porcelain --untracked-files=all)
+        $dirty = @($all | Where-Object { $_ -notmatch '(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache)/|\.pyc$' })
+        if ($dirty) { Add-Finding 'error' 'uncommitted-changes' "$($dirty.Count) uncommitted change(s) in $wt (work that was never committed): $(($dirty | Select-Object -First 5) -join '; ')" }
+        elseif ($all) { Add-Finding 'warn' 'cache-files' "$($all.Count) tool cache file(s) in $wt (ignored; consider adding them to .gitignore)." }
     }
 
     foreach ($f in $changed) {
         if ($Locked -and (Test-GlobAny $f $Locked)) { Add-Finding 'error' 'locked-file-modified' "$f is locked (a check that judges the task) but was changed." }
     }
 
-    # verification contract: run the plan's checks against the committed branch
+    # verification contract: run the plan's checks on what a merge would produce (current HEAD + the branch), because
+    # the base may have moved since the task started (seen live: a sibling task merged meanwhile). -OnBranchOnly
+    # runs them on the branch as committed instead.
     $runs = @()
+    $checkedOn = $null
     if ($Run) {
         $tmp = $null
-        $dir = $wt
-        if (-not $dir) {
+        $dir = $null
+        if ($OnBranchOnly) {
+            $dir = $wt
+            $checkedOn = "branch $Branch"
+            if (-not $dir) {
+                $tmp = Join-Path ([IO.Path]::GetTempPath()) ('ag2o-verify-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+                git -C $Repo worktree add --detach $tmp $Branch *> $null
+                $dir = $tmp
+            }
+        } else {
+            $head = (git -C $Repo rev-parse HEAD).Trim()
             $tmp = Join-Path ([IO.Path]::GetTempPath()) ('ag2o-verify-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-            git -C $Repo worktree add --detach $tmp $Branch *> $null
-            $dir = $tmp
+            git -C $Repo worktree add --detach $tmp $head *> $null
+            $out = git -C $tmp -c user.name=agent-foreman -c user.email=verify@localhost merge --no-ff --no-commit $Branch 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Add-Finding 'error' 'merge-conflict' "task branch does not merge cleanly into HEAD ($($head.Substring(0, 8))): $($out.Trim() -replace '\s+', ' ')"
+            } else { $dir = $tmp }
+            $checkedOn = "merge preview of HEAD $($head.Substring(0, 8)) + $Branch"
         }
         try {
-            foreach ($c in $Run) {
+            foreach ($c in $(if ($dir) { $Run } else { @() })) {
                 $r = Invoke-Check -Command $c -Dir $dir -TimeoutSec $RunTimeoutSec
                 $runs += $r
                 if ($r.timedOut) { Add-Finding 'error' 'check-timeout' "'$c' ran longer than $RunTimeoutSec s." }
@@ -178,7 +206,7 @@ function Test-Handoff {
     $verdict = if ($errors.Count) { 'refuted' } elseif ($Run) { 'verified' } else { 'unverified' }
     $result = [ordered]@{
         ok = ($errors.Count -eq 0); verdict = $verdict; branch = $Branch; base = $Base; status = $status; changedFiles = $changed
-        findings = @($findings); checks = @($runs)
+        findings = @($findings); checks = @($runs); checkedOn = $checkedOn
         manualChecks = @(
             $(if ($Run) { 'Compare the check results above with the numbers the HANDOFF claims.' } else { 'No -Run checks: run the task tests, the full suite and the linter yourself; do not copy numbers from the HANDOFF.' })
             'Check every "met"/"pass"/"done" claim against the raw numbers in the report.'
@@ -198,6 +226,6 @@ if ($MyInvocation.InvocationName -ne '.') {
         if ($RunFile) { $runList += @(Get-Content -LiteralPath $RunFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }) }
         Test-Handoff -Repo $Repo -Branch $Branch -Handoff $Handoff -Base $Base `
             -Allowed (Split-ListArg $Allowed ',') -Forbidden (Split-ListArg $Forbidden ',') -Locked (Split-ListArg $Locked ',') `
-            -Run $runList -RunTimeoutSec $RunTimeoutSec
+            -Run $runList -RunTimeoutSec $RunTimeoutSec -OnBranchOnly:$OnBranchOnly
     }
 }

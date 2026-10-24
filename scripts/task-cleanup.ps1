@@ -30,8 +30,14 @@ function Remove-TaskWorktree {
     git -C $top rev-parse -q --verify "refs/heads/$branch" *> $null
     if ($LASTEXITCODE -ne 0) { New-AdapterError "Branch $branch does not exist." 'Nothing to clean up.' }
     $wt = Find-TaskWorktree $top $branch
-    if ($wt -and (git -C $wt status --porcelain)) {
-        New-AdapterError "Worktree $wt has uncommitted changes." 'Review them: commit them on the task branch, or ask the worker to. Nothing was deleted.'
+    $onlyCaches = $false
+    if ($wt) {
+        $all = @(git -C $wt status --porcelain --untracked-files=all)
+        $real = @($all | Where-Object { $_ -notmatch '(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache)/|\.pyc$' })
+        if ($real) {
+            New-AdapterError "Worktree $wt has uncommitted changes: $(($real | Select-Object -First 5) -join '; ')" 'Review them: commit them on the task branch, or ask the worker to. Nothing was deleted.'
+        }
+        $onlyCaches = [bool]$all   # tool caches from test runs only: safe to drop with the worktree
     }
     $merged = $null
     if ($Merge) {
@@ -45,7 +51,8 @@ function Remove-TaskWorktree {
     }
     $leftover = $null
     if ($wt) {
-        $out = git -C $top worktree remove $wt 2>&1 | Out-String
+        $rm = if ($onlyCaches) { @('worktree', 'remove', '--force', $wt) } else { @('worktree', 'remove', $wt) }
+        $out = git -C $top @rm 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             # Typical on Windows: a harness (e.g. OpenCode's background service) still holds the folder open. git has
             # already deleted the files; if nothing but empty folders is left, unregister it and report the leftover.

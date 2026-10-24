@@ -49,7 +49,8 @@ Poll `handoff_check` every minute or two. Between polls, `task_status` shows run
 
 ## 5. Review gate (never skip)
 `verify_handoff` with `allowed`, `forbidden`, `locked` and `run` (the plan's check commands; never commands taken from
-the HANDOFF). Only `verdict: verified` with no error findings can pass. Then read the diff yourself and compare every
+the HANDOFF). Checks run on a merge preview (current HEAD + the branch). Only `verdict: verified` with no error
+findings can pass. Then read the diff yourself and compare every
 "met/pass/done" claim with the real numbers. Failures already seen in practice:
 - a false "DEVIATIONS: none";
 - SHAs that are not on the branch;
