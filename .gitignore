@@ -1,0 +1,4 @@
+*.prompt.md
+logs/
+testResults.xml
+.secret-denylist

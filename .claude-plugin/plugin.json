@@ -1,0 +1,9 @@
+{
+  "name": "ag2-orchestrator",
+  "displayName": "AG2 Orchestrator",
+  "version": "0.1.0",
+  "description": "Use Claude Code as Tech Lead over Antigravity 2 desktop, OpenCode and other headless coding harnesses on Windows: plan in waves, isolate tasks in git worktrees, dispatch, watch for HANDOFFs, and gate every merge on independent review.",
+  "author": { "name": "ag2-orchestrator contributors" },
+  "license": "MIT",
+  "keywords": ["orchestration", "antigravity", "opencode", "multi-agent", "worktree", "windows", "powershell"]
+}

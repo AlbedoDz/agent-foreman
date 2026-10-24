@@ -1,0 +1,12 @@
+{
+  "name": "ag2-orchestrator",
+  "description": "Single-plugin marketplace for ag2-orchestrator.",
+  "owner": { "name": "ag2-orchestrator contributors" },
+  "plugins": [
+    {
+      "name": "ag2-orchestrator",
+      "source": ".",
+      "description": "Claude Code as Tech Lead over Antigravity 2, OpenCode and other headless coding harnesses (Windows)."
+    }
+  ]
+}
