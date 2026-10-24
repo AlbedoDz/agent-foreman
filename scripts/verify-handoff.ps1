@@ -1,8 +1,10 @@
 # Check a worker's HANDOFF against git reality. Never trust a HANDOFF on its own word.
 #
 #   verify-handoff.ps1 -Branch task/T1 -Handoff docs/handoffs/HANDOFF_T1.md [-Base main]
-#                      [-Allowed 'src/foo/*','tests/test_foo.py'] [-Forbidden 'tests/locked_*'] [-Repo .]
-#                      [-Locked 'tests/*'] [-Run 'python -m unittest tests.test_foo','ruff check src']
+#                      [-Allowed 'src/foo/*,tests/test_foo.py'] [-Forbidden 'tests/locked_*'] [-Repo .]
+#                      [-Locked 'tests/*'] [-Run "python -m unittest tests.test_foo`nruff check src"] [-RunFile checks.txt]
+# Lists: `pwsh -File` passes only ONE value per [string[]] parameter, so globs go comma-separated in one argument
+# and commands one per line (or one per line in -RunFile).
 #
 # Verification contract: -Run commands come from the PLAN (never from the HANDOFF). They run in the task's worktree
 # (or a temporary detached checkout of the branch) with a timeout, and their exit codes decide. If a -Locked file
@@ -31,10 +33,17 @@ param(
     [string[]]$Forbidden = @(),
     [string[]]$Locked = @(),
     [string[]]$Run = @(),
+    [string]$RunFile = '',
     [int]$RunTimeoutSec = 600,
     [string]$Repo = '.'
 )
 . "$PSScriptRoot/lib/Common.ps1"
+
+function Split-ListArg {
+    <# globs comma-separated, commands one per line (see the header) #>
+    param([string[]]$Values, [string]$Separator)
+    @($Values | ForEach-Object { $_ -split $Separator } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
 
 function Get-HandoffSection {
     <# Lines of a "HEADER:" block (bullets until the next UPPERCASE header). #>
@@ -184,6 +193,11 @@ function Test-Handoff {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Complete-Script -Body { Test-Handoff -Repo $Repo -Branch $Branch -Handoff $Handoff -Base $Base -Allowed $Allowed -Forbidden $Forbidden `
-            -Locked $Locked -Run $Run -RunTimeoutSec $RunTimeoutSec }
+    Complete-Script -Body {
+        $runList = @(Split-ListArg $Run "`r?`n")
+        if ($RunFile) { $runList += @(Get-Content -LiteralPath $RunFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }) }
+        Test-Handoff -Repo $Repo -Branch $Branch -Handoff $Handoff -Base $Base `
+            -Allowed (Split-ListArg $Allowed ',') -Forbidden (Split-ListArg $Forbidden ',') -Locked (Split-ListArg $Locked ',') `
+            -Run $runList -RunTimeoutSec $RunTimeoutSec
+    }
 }

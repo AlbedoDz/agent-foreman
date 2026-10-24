@@ -1,9 +1,15 @@
 # Install agent-foreman into a project. Idempotent; supports -WhatIf (changes nothing, lists what it would do).
 #
-#   pwsh -NoProfile -File <plugin>/scripts/install.ps1 -Project <path> [-Workers ag2,opencode] [-SkipCheck] [-WhatIf]
+#   pwsh -NoProfile -File <plugin>/scripts/install.ps1 -Project <path> [-Workers ag2,opencode] [-Lead opencode,agy]
+#                                                       [-SkipCheck] [-WhatIf]
+#
+# -Lead: which harnesses may act as the Tech Lead besides Claude Code (claude | opencode | agy | ag2). For each lead the
+# project gets the agent-foreman-lead skill in .agents/skills/ (read by OpenCode, agy and AG2). OpenCode also gets the
+# agent-foreman MCP server in the project's opencode.json. agy/AG2 load MCP servers only from global config, so for
+# them the installer prints the snippet instead of editing your global files.
 #
 # What it does in <project>:
-#   .claude/orchestrator/bin/            scripts (lib, adapters, task-new/cleanup, watch-handoff, verify-handoff)  [refreshed]
+#   .claude/orchestrator/bin/            scripts (lib, adapters, mcp, task-new/cleanup, watch-handoff, verify-handoff) [refreshed]
 #   .claude/orchestrator/templates/      TASK prompt, HANDOFF, PLAN, AGENTS, CLAUDE snippet                        [refreshed]
 #   .claude/orchestrator/orchestrator.config.json, PLAN.md                                                         [only if missing]
 #   .claude/settings.local.json          minimal PowerShell allow rules, merged (existing content kept)
@@ -13,6 +19,7 @@
 param(
     [string]$Project = '',
     [string[]]$Workers = @('ag2', 'opencode'),
+    [string[]]$Lead = @(),
     [switch]$SkipCheck
 )
 . "$PSScriptRoot/lib/Common.ps1"
@@ -82,6 +89,22 @@ function Add-GitIgnoreLines {
     @($missing | ForEach-Object { ".gitignore += $_" })
 }
 
+function Merge-OpenCodeMcp {
+    <# Register the agent-foreman MCP server in the project's opencode.json (merged; other keys kept). #>
+    param([string]$Path, [bool]$DryRun)
+    $want = [ordered]@{ type = 'local'; command = @('python', '.claude/orchestrator/bin/mcp/agent_foreman_mcp.py'); enabled = $true }
+    $cfg = if (Test-Path -LiteralPath $Path) {
+        try { Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+        catch { New-AdapterError "$Path is not plain JSON (comments?); refusing to touch it." "Add this under `"mcp`" yourself: `"agent-foreman`": $($want | ConvertTo-Json -Compress)" }
+    } else { [ordered]@{ '$schema' = 'https://opencode.ai/config.json' } }
+    if (-not $cfg.Contains('mcp')) { $cfg['mcp'] = [ordered]@{} }
+    $have = if ($cfg['mcp'].Contains('agent-foreman')) { $cfg['mcp']['agent-foreman'] | ConvertTo-Json -Compress -Depth 5 } else { '' }
+    if ($have -eq ($want | ConvertTo-Json -Compress -Depth 5)) { return @() }
+    $cfg['mcp']['agent-foreman'] = $want
+    if (-not $DryRun) { $cfg | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 -LiteralPath $Path -WhatIf:$false }
+    @("opencode.json: mcp.agent-foreman registered ($Path)")
+}
+
 function Test-RemoteCredentials {
     param([string]$Project)
     $remotes = git -C $Project remote -v 2>$null | Out-String
@@ -92,12 +115,14 @@ function Test-RemoteCredentials {
 }
 
 function Install-Orchestrator {
-    param([string]$Project, [string[]]$Workers, [switch]$SkipCheck, [bool]$DryRun)
+    param([string]$Project, [string[]]$Workers, [string[]]$Lead = @(), [switch]$SkipCheck, [bool]$DryRun)
     if (-not $Project) { New-AdapterError '-Project is required.' 'e.g. install.ps1 -Project .' }
     $proj = Resolve-Path -LiteralPath $Project -ErrorAction SilentlyContinue
     if (-not $proj) { New-AdapterError "Project folder not found: $Project" 'Pass an existing folder.' }
     $proj = $proj.Path
     $Workers = @($Workers | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $Lead = @($Lead | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ })
+    foreach ($l in $Lead) { if ($l -notin 'claude', 'opencode', 'agy', 'ag2') { New-AdapterError "Unknown lead '$l'." 'Leads: claude, opencode, agy, ag2.' } }
     $known = 'ag2', 'opencode', 'generic-cli'
     $orch = Join-Path $proj '.claude/orchestrator'
     $actions = [System.Collections.Generic.List[string]]::new()
@@ -108,7 +133,8 @@ function Install-Orchestrator {
     if ($LASTEXITCODE -ne 0) { $warnings.Add('Project is not a git repository; worktrees and HANDOFF checks need git (git init).') }
 
     # scripts
-    foreach ($f in Get-ChildItem -Recurse -File (Join-Path $PluginRoot 'scripts/lib'), (Join-Path $PluginRoot 'scripts/adapters')) {
+    foreach ($f in Get-ChildItem -Recurse -File (Join-Path $PluginRoot 'scripts/lib'), (Join-Path $PluginRoot 'scripts/adapters'), (Join-Path $PluginRoot 'scripts/mcp') |
+            Where-Object { $_.FullName -notmatch '__pycache__' }) {
         $rel = $f.FullName.Substring((Join-Path $PluginRoot 'scripts').Length + 1)
         $a = Sync-File $f.FullName (Join-Path $orch "bin/$rel") -DryRun $DryRun; if ($a) { $actions.Add($a) }
     }
@@ -141,6 +167,19 @@ function Install-Orchestrator {
     foreach ($a in (Merge-AllowRules (Join-Path $proj '.claude/settings.local.json') (Get-AllowRules $Workers $cfg) $DryRun)) { $actions.Add($a) }
     foreach ($a in (Add-GitIgnoreLines (Join-Path $proj '.gitignore') $script:IgnoreLines $DryRun)) { $actions.Add($a) }
 
+    # other harnesses as lead: shared project skill folder + MCP where the harness takes it per project
+    if ($Lead | Where-Object { $_ -ne 'claude' }) {
+        $skillDir = Join-Path $proj '.agents/skills/agent-foreman-lead'
+        $a = Sync-File (Join-Path $PluginRoot 'templates/lead/SKILL.md') (Join-Path $skillDir 'SKILL.md') -DryRun $DryRun; if ($a) { $actions.Add($a) }
+        foreach ($f in Get-ChildItem -File (Join-Path $PluginRoot 'skills/harness-orchestrator/reference')) {
+            $a = Sync-File $f.FullName (Join-Path $skillDir "reference/$($f.Name)") -DryRun $DryRun; if ($a) { $actions.Add($a) }
+        }
+    }
+    if ('opencode' -in $Lead) { foreach ($a in (Merge-OpenCodeMcp (Join-Path $proj 'opencode.json') $DryRun)) { $actions.Add($a) } }
+    if ($Lead | Where-Object { $_ -in 'agy', 'ag2' }) {
+        $todo.Add('agy/AG2 as lead: they load MCP servers only from ~/.gemini/config/mcp_config.json (global). To give them the agent-foreman tools, add under "mcpServers": "agent-foreman": {"command": "python", "args": ["<project>/.claude/orchestrator/bin/mcp/agent_foreman_mcp.py"], "env": {"AG2O_PROJECT": "<project>"}}. Without it they can still run the scripts through their shell (the skill explains both).')
+    }
+
     $cred = Test-RemoteCredentials $proj
     if ($cred) { $warnings.Add($cred) }
 
@@ -159,15 +198,15 @@ function Install-Orchestrator {
     if ('ag2' -in $Workers -and -not (Get-ConfigValue $cfg 'workers.ag2.projectId' '')) {
         $todo.Add('AG2 project id: open this folder as a project in Antigravity 2, start any conversation, then run: pwsh -NoProfile -File .claude\orchestrator\bin\adapters\ag2.ps1 -FindProjectId  (and set workers.ag2.projectId).')
     }
-    if ('opencode' -in $Workers -and -not (Get-ConfigValue $cfg 'workers.opencode.autoApprove' $false)) {
-        $todo.Add('OpenCode runs headless and cannot answer permission prompts. Read docs/SECURITY.md, then decide on workers.opencode.autoApprove.')
+    if ('opencode' -in $Workers -and (Get-ConfigValue $cfg 'workers.opencode.permissions' 'default') -eq 'default' -and -not (Get-ConfigValue $cfg 'workers.opencode.autoApprove' $false)) {
+        $todo.Add('OpenCode runs headless and cannot answer permission prompts. Read docs/SECURITY.md, then decide on workers.opencode.permissions.')
     }
     if (-not (Test-Path (Join-Path $proj 'AGENTS.md'))) { $todo.Add('Add an AGENTS.md for workers (sample: .claude/orchestrator/templates/AGENTS.md).') }
     $todo.Add('Optionally paste .claude/orchestrator/templates/CLAUDE.orchestration.md into your CLAUDE.md.')
 
-    [ordered]@{ ok = $true; project = $proj; dryRun = $DryRun; workers = $Workers; actions = @($actions); warnings = @($warnings); checks = $checks; todo = @($todo) }
+    [ordered]@{ ok = $true; project = $proj; dryRun = $DryRun; workers = $Workers; leads = $Lead; actions = @($actions); warnings = @($warnings); checks = $checks; todo = @($todo) }
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Complete-Script -Body { Install-Orchestrator -Project $Project -Workers $Workers -SkipCheck:$SkipCheck -DryRun ([bool]$WhatIfPreference) }
+    Complete-Script -Body { Install-Orchestrator -Project $Project -Workers $Workers -Lead $Lead -SkipCheck:$SkipCheck -DryRun ([bool]$WhatIfPreference) }
 }
