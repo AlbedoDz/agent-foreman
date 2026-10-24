@@ -1,6 +1,6 @@
-## Orchestration rules (ag2-orchestrator)
+## Orchestration rules (agent-foreman)
 
-- For multi-task work, act as Tech Lead with the `ag2-orchestrator:harness-orchestrator` skill: plan in waves
+- For multi-task work, act as Tech Lead with the `agent-foreman:harness-orchestrator` skill: plan in waves
   (`.claude/orchestrator/PLAN.md`), one worktree per task, dispatch, watch, review, merge.
 - Scripts live in `.claude/orchestrator/bin/`. Always call them exactly as
   `pwsh -NoProfile -File .claude\orchestrator\bin\<script>.ps1 ...` so the allow rules in `.claude/settings.local.json` match.

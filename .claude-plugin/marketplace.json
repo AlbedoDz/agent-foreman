@@ -1,12 +1,15 @@
 {
-  "name": "ag2-orchestrator",
-  "description": "Single-plugin marketplace for ag2-orchestrator.",
-  "owner": { "name": "ag2-orchestrator contributors" },
+  "name": "agent-foreman",
+  "description": "Single-plugin marketplace for agent-foreman.",
+  "owner": {
+    "name": "AlbedoDz",
+    "url": "https://github.com/AlbedoDz"
+  },
   "plugins": [
     {
-      "name": "ag2-orchestrator",
+      "name": "agent-foreman",
       "source": ".",
-      "description": "Claude Code as Tech Lead over Antigravity 2, OpenCode and other headless coding harnesses (Windows)."
+      "description": "Claude Code as Tech Lead over Antigravity 2, OpenCode and other headless coding agents (Windows)."
     }
   ]
 }

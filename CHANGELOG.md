@@ -52,5 +52,5 @@ Each task ran in its own worktree, using the packaged scripts installed by `inst
 
 ### Not verified yet
 - `generic-cli.ps1` against any real third-party harness (only unit-tested with mocks).
-- Installing from GitHub with `claude plugin marketplace add <owner>/ag2-orchestrator` (only the local manifests were validated).
+- Installing from GitHub with `claude plugin marketplace add AlbedoDz/agent-foreman` (only the local manifests were validated).
 - The real model names behind AG2's `flash` / `pro`.

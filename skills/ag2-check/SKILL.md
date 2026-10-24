@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 Check the orchestration workers for this project.
 
-1. If `.claude\orchestrator\bin` does not exist, stop and tell the user to run `/ag2-orchestrator:orchestrator-install`.
+1. If `.claude\orchestrator\bin` does not exist, stop and tell the user to run `/agent-foreman:orchestrator-install`.
 2. Read `.claude\orchestrator\orchestrator.config.json` and list the enabled workers. If an argument is given, check only that worker: `$ARGUMENTS`.
 3. For each worker, run from the project root (exact form, one call per worker):
    - AG2: `pwsh -NoProfile -File .claude\orchestrator\bin\adapters\ag2.ps1 -Check`

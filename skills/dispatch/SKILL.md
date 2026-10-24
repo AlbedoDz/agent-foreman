@@ -5,7 +5,7 @@ disable-model-invocation: true
 ---
 
 Dispatch task `$0` to worker `$1`. Full arguments: `$ARGUMENTS`.
-Follow the ag2-orchestrator:harness-orchestrator skill, sections 3 to 5.
+Follow the agent-foreman:harness-orchestrator skill, sections 3 to 5.
 
 1. Find task `$0` in `.claude\orchestrator\PLAN.md` (allowed/forbidden files, test command, done-when). If it is missing, ask the user for these before continuing.
 2. If `..\wt-$0` does not exist yet: `pwsh -NoProfile -File .claude\orchestrator\bin\task-new.ps1 -Id $0`.

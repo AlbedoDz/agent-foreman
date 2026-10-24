@@ -1,4 +1,4 @@
-# Install ag2-orchestrator into a project. Idempotent; supports -WhatIf (changes nothing, lists what it would do).
+# Install agent-foreman into a project. Idempotent; supports -WhatIf (changes nothing, lists what it would do).
 #
 #   pwsh -NoProfile -File <plugin>/scripts/install.ps1 -Project <path> [-Workers ag2,opencode] [-SkipCheck] [-WhatIf]
 #
@@ -77,7 +77,7 @@ function Add-GitIgnoreLines {
     if (-not $missing) { return @() }
     if (-not $DryRun) {
         $prefix = if ($have -and (Get-Content -Raw -LiteralPath $Path) -notmatch "`n$") { "`n" } else { '' }
-        Add-Content -Encoding utf8 -LiteralPath $Path -Value ($prefix + "# ag2-orchestrator`n" + ($missing -join "`n")) -WhatIf:$false
+        Add-Content -Encoding utf8 -LiteralPath $Path -Value ($prefix + "# agent-foreman`n" + ($missing -join "`n")) -WhatIf:$false
     }
     @($missing | ForEach-Object { ".gitignore += $_" })
 }

@@ -1,4 +1,4 @@
-# ag2-orchestrator
+# agent-foreman
 
 **Use Claude Code as Tech Lead over other coding agents on Windows.** Claude plans the work in waves and gives each
 task its own git worktree. It dispatches the tasks to **Antigravity 2** (desktop), **OpenCode**, or any headless CLI harness. It waits
@@ -19,14 +19,14 @@ for each worker's HANDOFF commit, **verifies the report against git and re-runs 
 ## Install
 
 ```powershell
-claude plugin marketplace add <owner>/ag2-orchestrator
-claude plugin install ag2-orchestrator@ag2-orchestrator
+claude plugin marketplace add AlbedoDz/agent-foreman
+claude plugin install agent-foreman@agent-foreman
 ```
 
 Then, inside Claude Code in your project:
 
 ```
-/ag2-orchestrator:orchestrator-install ag2,opencode
+/agent-foreman:orchestrator-install ag2,opencode
 ```
 
 This runs `scripts/install.ps1` (with a `-WhatIf` preview first). In your project it creates `.claude/orchestrator/`
@@ -40,7 +40,7 @@ pwsh -NoProfile -File .claude\orchestrator\bin\adapters\ag2.ps1 -FindProjectId
 pwsh -NoProfile -File .claude\orchestrator\bin\adapters\ag2.ps1 -FindProjectId -SessionId <id from the list>
 ```
 
-Put the value into `workers.ag2.projectId`, then run `/ag2-orchestrator:ag2-check`.
+Put the value into `workers.ag2.projectId`, then run `/agent-foreman:ag2-check`.
 
 ## Use
 
@@ -48,12 +48,12 @@ Ask Claude for multi-part work ("split this feature across agents"), and the `ha
 
 | Command | What it does |
 |---|---|
-| `/ag2-orchestrator:ag2-check` | check workers |
-| `/ag2-orchestrator:wave 1` | dispatch every ready task of wave 1 (max 3 in parallel) |
-| `/ag2-orchestrator:dispatch T1 ag2:flash` | one task: worktree, prompt, dispatch, background watcher |
-| `/ag2-orchestrator:status` | worker state + HANDOFF yes/no per task |
-| `/ag2-orchestrator:nudge T1` | read the transcript tail, send a specific nudge |
-| `/ag2-orchestrator:review T1` | verify HANDOFF vs git, read the diff, re-run tests → GO (merge) / FIX |
+| `/agent-foreman:ag2-check` | check workers |
+| `/agent-foreman:wave 1` | dispatch every ready task of wave 1 (max 3 in parallel) |
+| `/agent-foreman:dispatch T1 ag2:flash` | one task: worktree, prompt, dispatch, background watcher |
+| `/agent-foreman:status` | worker state + HANDOFF yes/no per task |
+| `/agent-foreman:nudge T1` | read the transcript tail, send a specific nudge |
+| `/agent-foreman:review T1` | verify HANDOFF vs git, read the diff, re-run tests → GO (merge) / FIX |
 
 The workflow (Plan → Route → Isolate → Dispatch → Watch → Review gate → Merge/Fix → Fallback) is in
 [skills/harness-orchestrator/SKILL.md](skills/harness-orchestrator/SKILL.md).

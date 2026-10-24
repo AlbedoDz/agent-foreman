@@ -1,9 +1,24 @@
 {
-  "name": "ag2-orchestrator",
-  "displayName": "AG2 Orchestrator",
+  "name": "agent-foreman",
+  "displayName": "Agent Foreman",
   "version": "0.1.0",
-  "description": "Use Claude Code as Tech Lead over Antigravity 2 desktop, OpenCode and other headless coding harnesses on Windows: plan in waves, isolate tasks in git worktrees, dispatch, watch for HANDOFFs, and gate every merge on independent review.",
-  "author": { "name": "ag2-orchestrator contributors" },
+  "description": "Claude Code as Tech Lead (foreman) over Antigravity 2, OpenCode and any headless coding agent on Windows: wave plans, one git worktree per task, dispatch and watch, HANDOFF verified against git, review-gated merges.",
+  "author": {
+    "name": "AlbedoDz",
+    "url": "https://github.com/AlbedoDz"
+  },
+  "homepage": "https://github.com/AlbedoDz/agent-foreman",
+  "repository": "https://github.com/AlbedoDz/agent-foreman",
   "license": "MIT",
-  "keywords": ["orchestration", "antigravity", "opencode", "multi-agent", "worktree", "windows", "powershell"]
+  "keywords": [
+    "orchestration",
+    "antigravity",
+    "opencode",
+    "multi-agent",
+    "worktree",
+    "windows",
+    "powershell",
+    "tech-lead",
+    "code-review"
+  ]
 }

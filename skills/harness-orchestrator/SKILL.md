@@ -1,7 +1,7 @@
 ---
 name: harness-orchestrator
 description: Act as Tech Lead and drive external coding agents (Antigravity 2 desktop, OpenCode CLI, any headless CLI harness) on Windows. Plan work in waves, isolate each task in its own git worktree, dispatch, watch for HANDOFF commits, verify every report against git, then merge or send fixes.
-when_to_use: The user asks to orchestrate, delegate, split work across agents, dispatch a task to Antigravity/AG2/OpenCode, run a wave, or review a worker's HANDOFF. Requires `.claude/orchestrator/` (install with /ag2-orchestrator:orchestrator-install).
+when_to_use: The user asks to orchestrate, delegate, split work across agents, dispatch a task to Antigravity/AG2/OpenCode, run a wave, or review a worker's HANDOFF. Requires `.claude/orchestrator/` (install with /agent-foreman:orchestrator-install).
 ---
 
 # Harness orchestrator: Claude as Tech Lead
@@ -11,7 +11,7 @@ You plan, route, review and merge. Workers write code. You never take a worker's
 All scripts print ONE line of JSON (`ok`, plus `error`/`hint` on failure) and live in `.claude\orchestrator\bin\`.
 Call them EXACTLY like this from the project root (the allow rules match this form only):
 `pwsh -NoProfile -File .claude\orchestrator\bin\<script>.ps1 <args>`.
-If `.claude\orchestrator\bin` is missing, run `/ag2-orchestrator:orchestrator-install` first.
+If `.claude\orchestrator\bin` is missing, run `/agent-foreman:orchestrator-install` first.
 Config: `.claude\orchestrator\orchestrator.config.json` (`maxParallel`, `routing`, `workers`, `stallMin`, `fixRoundsMax`, `handoffDir`).
 
 ## 1. Plan

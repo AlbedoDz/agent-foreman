@@ -4,7 +4,7 @@ argument-hint: "<taskId>"
 disable-model-invocation: true
 ---
 
-Review task `$0`. Follow the ag2-orchestrator:harness-orchestrator skill, sections 6 and 7, and its reference/review-checklist.md.
+Review task `$0`. Follow the agent-foreman:harness-orchestrator skill, sections 6 and 7, and its reference/review-checklist.md.
 
 1. Take the allowed and forbidden globs and the test commands from `.claude\orchestrator\PLAN.md`.
 2. `pwsh -NoProfile -File .claude\orchestrator\bin\verify-handoff.ps1 -Repo . -Branch task/$0 -Handoff <handoffDir>/HANDOFF_$0.md -Allowed <globs> -Forbidden <globs>`

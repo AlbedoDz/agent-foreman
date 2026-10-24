@@ -1,4 +1,4 @@
-# ag2-orchestrator
+# agent-foreman
 
 **Dùng Claude Code làm Tech Lead điều phối các coding agent khác trên Windows.** Claude chia việc theo wave, cho mỗi
 task một git worktree riêng, rồi giao task cho **Antigravity 2** (bản desktop), **OpenCode** hoặc bất kỳ harness nào có CLI headless.
@@ -19,14 +19,14 @@ Sau đó Claude chờ commit HANDOFF, **đối chiếu báo cáo với git và t
 ## Cài đặt
 
 ```powershell
-claude plugin marketplace add <owner>/ag2-orchestrator
-claude plugin install ag2-orchestrator@ag2-orchestrator
+claude plugin marketplace add AlbedoDz/agent-foreman
+claude plugin install agent-foreman@agent-foreman
 ```
 
 Sau đó, trong Claude Code, mở project của bạn và gõ:
 
 ```
-/ag2-orchestrator:orchestrator-install ag2,opencode
+/agent-foreman:orchestrator-install ag2,opencode
 ```
 
 Lệnh này chạy `scripts/install.ps1` (có xem trước bằng `-WhatIf`). Nó làm những việc sau:
@@ -43,7 +43,7 @@ pwsh -NoProfile -File .claude\orchestrator\bin\adapters\ag2.ps1 -FindProjectId
 pwsh -NoProfile -File .claude\orchestrator\bin\adapters\ag2.ps1 -FindProjectId -SessionId <id trong danh sách>
 ```
 
-Ghi giá trị nhận được vào `workers.ag2.projectId`, rồi chạy `/ag2-orchestrator:ag2-check`.
+Ghi giá trị nhận được vào `workers.ag2.projectId`, rồi chạy `/agent-foreman:ag2-check`.
 
 ## Sử dụng
 
@@ -51,12 +51,12 @@ Khi bạn nhờ Claude làm việc gồm nhiều phần (ví dụ "chia tính n�
 
 | Lệnh | Tác dụng |
 |---|---|
-| `/ag2-orchestrator:ag2-check` | kiểm tra các worker |
-| `/ag2-orchestrator:wave 1` | giao mọi task đã sẵn sàng của wave 1 (tối đa 3 task song song) |
-| `/ag2-orchestrator:dispatch T1 ag2:flash` | giao một task: tạo worktree, viết prompt, giao việc, bật watcher chạy nền |
-| `/ag2-orchestrator:status` | trạng thái worker và cho biết đã có HANDOFF hay chưa, theo từng task |
-| `/ag2-orchestrator:nudge T1` | đọc đuôi transcript rồi gửi nhắc việc cụ thể |
-| `/ag2-orchestrator:review T1` | đối chiếu HANDOFF với git, đọc diff, chạy lại test, rồi kết luận GO (merge) hoặc FIX |
+| `/agent-foreman:ag2-check` | kiểm tra các worker |
+| `/agent-foreman:wave 1` | giao mọi task đã sẵn sàng của wave 1 (tối đa 3 task song song) |
+| `/agent-foreman:dispatch T1 ag2:flash` | giao một task: tạo worktree, viết prompt, giao việc, bật watcher chạy nền |
+| `/agent-foreman:status` | trạng thái worker và cho biết đã có HANDOFF hay chưa, theo từng task |
+| `/agent-foreman:nudge T1` | đọc đuôi transcript rồi gửi nhắc việc cụ thể |
+| `/agent-foreman:review T1` | đối chiếu HANDOFF với git, đọc diff, chạy lại test, rồi kết luận GO (merge) hoặc FIX |
 
 Quy trình đầy đủ (Plan → Route → Isolate → Dispatch → Watch → Review gate → Merge/Fix → Fallback) nằm trong
 [skills/harness-orchestrator/SKILL.md](skills/harness-orchestrator/SKILL.md).

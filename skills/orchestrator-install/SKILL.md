@@ -1,10 +1,10 @@
 ---
-description: Install or update ag2-orchestrator in the current project (scripts, templates, config, minimal allow rules, gitignore).
+description: Install or update agent-foreman in the current project (scripts, templates, config, minimal allow rules, gitignore).
 argument-hint: "[ag2,opencode]"
 disable-model-invocation: true
 ---
 
-Install ag2-orchestrator into the current project.
+Install agent-foreman into the current project.
 
 1. Do a dry run first, from the project root:
    `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/scripts/install.ps1" -Project . -Workers <workers> -WhatIf`
