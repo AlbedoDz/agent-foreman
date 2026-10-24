@@ -1,0 +1,42 @@
+{
+  "maxParallel": 3,
+  "worktreeRoot": "",
+  "handoffDir": "docs/handoffs",
+  "stallMin": 45,
+  "timeoutMin": 180,
+  "fixRoundsMax": 2,
+  "routing": {
+    "ui": "ag2:flash",
+    "read-heavy": "ag2:flash",
+    "tests": "ag2:flash",
+    "hard-spike": "ag2:pro",
+    "scoped-logic": "opencode",
+    "refactor": "opencode",
+    "interface-contract": "claude",
+    "review": "claude",
+    "merge": "claude"
+  },
+  "workers": {
+    "ag2": {
+      "adapter": "ag2",
+      "enabled": true,
+      "projectId": "",
+      "defaultModel": "flash",
+      "idleAfterMin": 5
+    },
+    "opencode": {
+      "adapter": "opencode",
+      "enabled": true,
+      "defaultModel": "",
+      "autoApprove": false
+    },
+    "example-cli": {
+      "adapter": "generic-cli",
+      "enabled": false,
+      "check": ["example-cli", "--version"],
+      "dispatch": ["example-cli", "exec", "--model", "{model}", "{message}"],
+      "message": ["example-cli", "exec", "--resume", "{sessionId}", "{messageText}"],
+      "sessionIdPattern": "\"session_id\"\\s*:\\s*\"([^\"]+)\""
+    }
+  }
+}
